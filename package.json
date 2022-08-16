@@ -1,0 +1,27 @@
+{
+  "name": "netsuite-schema-scraper",
+  "description": "Tools to gather type data from NetSuite's schema browser",
+  "author": "William Hurley",
+  "license": "GPL-3.0-or-later",
+  "version": "0.1.0",
+  "main": "src/index.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wjhurley/netsuite-schema-scraper.git"
+  },
+  "keywords": [
+    "NetSuite"
+  ],
+  "bugs": {
+    "url": "https://github.com/wjhurley/netsuite-schema-scraper/issues"
+  },
+  "homepage": "https://github.com/wjhurley/netsuite-schema-scraper#readme",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "fs-extra": "^10.1.0",
+    "puppeteer": "^16.1.0"
+  },
+  "devDependencies": {}
+}
