@@ -1,6 +1,18 @@
 const fsExtra = require('fs-extra');
 const path = require('path');
 const puppeteer = require('puppeteer');
+const yargs = require('yargs');
+
+const args = yargs
+    .boolean('createFilePathObjectFile')
+    .boolean('createFilesForAllVersions')
+    .boolean('createFilesForNamespace')
+    .boolean('createFilesForSingleVersion')
+    .boolean('createSingleFile')
+    .string('link')
+    .string('namespaceLink')
+    .string('netsuiteVersion')
+    .argv;
 
 function capitalizeWord(word) {
     return word[0].toUpperCase() + word.slice(1);
@@ -29,7 +41,7 @@ export enum ${fileName} {`;
 
     return fileContent;
 }
-// TODO: Create a similar function to create the `filePath.js` object/file, or extend this to handle both
+
 async function createFilePathEnum(relativeFilePath, fileName, filePaths) {
     const outputPath = path.resolve(__dirname, relativeFilePath);
     const outputFile = `${outputPath}/${fileName}.ts`;
@@ -221,6 +233,102 @@ function createFileRow(filePaths, columnNames, row) {
     };
 }
 
+async function createFilesForNamespace(namespaceLink) {
+    // Get version and tab name from link
+    const [
+        http,
+        url,
+        help,
+        helpCenter,
+        locale,
+        srBrowser,
+        browserVersion,
+        schema,
+        tab,
+        record,
+    ] = namespaceLink.split(/\/+/g);
+    const version = browserVersion.slice(7);
+
+    // Create dynamic import here to get the specific version we need
+    const { filePaths } = require(`./filePath_${version}`);
+
+    const browser = await puppeteer.launch({
+        // devtools: true,
+        // headless: false,
+        // slowMo: 250,
+    });
+    const page = await browser.newPage();
+    await page.goto(namespaceLink);
+
+    let fileCount = 0;
+    const newFilePaths = {};
+    const rootNetSuiteSchemaUrl = getRootNetSuiteSchemaUrl(version);
+    const rootNetSuiteTypesFolder = getRootNetSuiteTypesFolder(version);
+
+    // Loop over the Record/Search/Other/Enum tabs
+    const leftHandTabs = [
+        'enum',
+        'other',
+        'record',
+        'search',
+    ];
+
+    for (const tab of leftHandTabs) {
+        // Get urls for all links on the left-hand side
+        const leftDrawerLinks = await getLeftHandDrawerLinks(rootNetSuiteSchemaUrl, page, tab);
+
+        for (const leftDrawerLink of leftDrawerLinks) {
+            await page.goto(leftDrawerLink);
+
+            try {
+                // Get the namespace on the page to know the file path to store the generated script
+                const [
+                    fileName,
+                    filePath,
+                    rows,
+                ] = await getPageContent(page, rootNetSuiteTypesFolder);
+
+                // All tabs except 'enum' need an additional folder level
+                const relativeFilePath = tab !== 'enum'
+                    ? `${filePath}/${capitalizeWord(tab)}`
+                    : filePath;
+
+                // Create entries for filePath object
+                const projectRootPathIndex = 'netsuite-schema-browser-types/'.length;
+                const projectFilePath = relativeFilePath.slice(projectRootPathIndex);
+                newFilePaths[fileName] = `${projectFilePath}/${fileName}`;
+
+                const outputPath = path.resolve(__dirname, `../../${relativeFilePath}`);
+                const outputFile = `${outputPath}/${fileName}.ts`;
+
+                // Create enum or interface from page content
+                let fileContent = '';
+
+                // Enum page layout is much different from other pages, so handle them differently
+                if (tab !== 'enum') {
+                    fileContent = createInterface(filePaths, leftDrawerLink, fileName, rows);
+                } else {
+                    fileContent = createEnum(leftDrawerLink, fileName, rows);
+                }
+                console.log(outputFile);
+
+                // Ensure file path exists before we try writing the file
+                await fsExtra.ensureDir(outputPath);
+                await fsExtra.writeFile(outputFile, fileContent);
+                fileCount += 1;
+            } catch(e) {
+                console.error(e);
+                console.log(`Failed to grab data from page, broken link at:\n${leftDrawerLink}`);
+            }
+        }
+    }
+
+    console.log(`Total files created: ${fileCount}`);
+    console.log(`New entries for filePath object:\n${JSON.stringify(newFilePaths, null, 4)}`);
+
+    await browser.close();
+}
+
 async function createFilesForVersion(version) {
     // Create dynamic import here to get the specific version we need
     const { filePaths } = require(`./filePath_${version}`);
@@ -286,7 +394,6 @@ async function createFilesForVersion(version) {
                         fileContent = createEnum(leftDrawerLink, fileName, rows);
                     }
                     console.log(outputFile);
-                    // console.log(fileContent);
 
                     // Ensure file path exists before we try writing the file
                     await fsExtra.ensureDir(outputPath);
@@ -407,6 +514,74 @@ export interface ${fileName} {${attributesProp}${interfaceProps}
 ${attributesInterface}`;
 }
 
+async function createSingleFile(link) {
+    // Get version and tab name from link
+    const [
+        http,
+        url,
+        help,
+        helpCenter,
+        locale,
+        srBrowser,
+        browserVersion,
+        schema,
+        tab,
+        record,
+    ] = link.split(/\/+/g);
+    const version = browserVersion.slice(7);
+
+    // Create dynamic import here to get the specific version we need
+    const { filePaths } = require(`./filePath_${version}`);
+
+    const browser = await puppeteer.launch({
+        // devtools: true,
+        // headless: false,
+        // slowMo: 1000,
+    });
+    const page = await browser.newPage();
+    await page.goto(link);
+
+    const rootNetSuiteTypesFolder = getRootNetSuiteTypesFolder(version);
+
+    try {
+        // Get the namespace on the page to know the file path to store the generated script
+        const [
+            fileName,
+            filePath,
+            rows,
+        ] = await getPageContent(page, rootNetSuiteTypesFolder);
+
+        // All tabs except 'enum' need an additional folder level
+        const relativeFilePath = tab !== 'enum'
+            ? `${filePath}/${capitalizeWord(tab)}`
+            : filePath;
+
+        const outputPath = path.resolve(__dirname, `../../${relativeFilePath}`);
+        const outputFile = `${outputPath}/${fileName}.ts`;
+
+        // Create enum or interface from page content
+        let fileContent = '';
+
+        // Enum page layout is much different from other pages, so handle them differently
+        if (tab !== 'enum') {
+            fileContent = createInterface(filePaths, link, fileName, rows);
+        } else {
+            fileContent = createEnum(link, fileName, rows);
+        }
+
+        // Ensure file path exists before we try writing the file
+        await fsExtra.ensureDir(outputPath);
+        await fsExtra.writeFile(outputFile, fileContent);
+
+        console.log(`New file created:\n${outputFile}`);
+    } catch (e) {
+        console.error(e);
+        console.log(`Failed to grab data from page, broken link at:\n${link}`);
+    }
+
+    await browser.close();
+}
+
 async function getLeftHandDrawerLinks(rootNetSuiteSchemaUrl, page, tab) {
     return page.$$eval(
         `[name="${tab}switch"]`,
@@ -484,28 +659,42 @@ function sortImports(importA, importB) {
     return subA.localeCompare(subB);
 }
 
-(async () => {
-    const versions = [
-        '2014_1',
-        '2014_2',
-        '2015_1',
-        '2015_2',
-        '2016_1',
-        '2016_2',
-        '2017_1',
-        '2017_2',
-        '2018_1',
-        '2018_2',
-        '2019_1',
-        '2019_2',
-        '2020_1',
-        '2020_2',
-        '2021_1',
-        '2021_2',
-        '2022_1',
-    ];
+async function main() {
+    if (args.createFilesForAllVersions) {
+        const versions = [
+            '2014_1',
+            '2014_2',
+            '2015_1',
+            '2015_2',
+            '2016_1',
+            '2016_2',
+            '2017_1',
+            '2017_2',
+            '2018_1',
+            '2018_2',
+            '2019_1',
+            '2019_2',
+            '2020_1',
+            '2020_2',
+            '2021_1',
+            '2021_2',
+            '2022_1',
+        ];
 
-    for (const version of versions) {
+        for (const version of versions) {
+            console.log(`Creating 'filePath.js' for version ${version}...`);
+            await createFilePathObjectFile(version);
+            console.log(`Finished creating 'filePath.js' for version ${version}.`);
+
+            console.log(`Creating files for version ${version}...`);
+            await createFilesForVersion(version);
+            console.log(`Finished creating files for version ${version}.`);
+        }
+    }
+
+    if (args.createFilesForSingleVersion && args.netsuiteVersion) {
+        const { netsuiteVersion: version } = args;
+
         console.log(`Creating 'filePath.js' for version ${version}...`);
         await createFilePathObjectFile(version);
         console.log(`Finished creating 'filePath.js' for version ${version}.`);
@@ -514,4 +703,34 @@ function sortImports(importA, importB) {
         await createFilesForVersion(version);
         console.log(`Finished creating files for version ${version}.`);
     }
-})();
+
+    if (args.createFilesForNamespace && args.namespaceLink) {
+        const { namespaceLink } = args;
+
+        console.log(`Creating namespace files from link ${namespaceLink}...`);
+        await createFilesForNamespace(namespaceLink);
+        console.log(`Finished creating namespace files from link ${namespaceLink}.`);
+    }
+
+    if (args.createSingleFile && args.link) {
+        const { link } = args;
+
+        console.log(`Creating file for page ${link}...`);
+        await createSingleFile(link);
+        console.log(`Finished creating file for page ${link}.`);
+    }
+
+    if (args.createFilePathObjectFile && args.netsuiteVersion) {
+        const { netsuiteVersion: version } = args;
+
+        console.log(`Creating 'filePath' file for version ${version}...`);
+        await createFilePathObjectFile(version);
+        console.log(`Finished creating 'filePath' file for version ${version}.`);
+    }
+}
+
+main()
+    .catch(error => {
+        console.error(error);
+        process.exit(1);
+    });
