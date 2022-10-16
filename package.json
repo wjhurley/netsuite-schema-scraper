@@ -21,7 +21,8 @@
   },
   "dependencies": {
     "fs-extra": "^10.1.0",
-    "puppeteer": "^16.1.0"
+    "puppeteer": "^16.1.0",
+    "yargs": "^17.6.0"
   },
   "devDependencies": {}
 }
