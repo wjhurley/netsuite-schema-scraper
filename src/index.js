@@ -8,6 +8,8 @@ const args = yargs
     .boolean('createFilesForAllVersions')
     .boolean('createFilesForNamespace')
     .boolean('createFilesForSingleVersion')
+    .boolean('createIndexFilesForAllVersions')
+    .boolean('createIndexFilesForSingleVersion')
     .boolean('createSingleFile')
     .string('link')
     .string('namespaceLink')
@@ -417,6 +419,119 @@ async function createFilesForVersion(version) {
     await browser.close();
 }
 
+function createIndexFileContent(folderContents) {
+    return folderContents
+        .map(fileOrFolder => `export * from './${fileOrFolder}';`)
+        .join('\n');
+}
+
+async function createIndexFilesForVersion(version) {
+    const versionFolderPath = path.resolve(__dirname, `../../netsuite-schema-browser-types/src/${version}`);
+
+    // Get contents in root version folder
+    const versionFolderContents = await fsExtra.readdir(versionFolderPath);
+    const {
+        files: topLevelNamespaceFiles,
+        folders: topLevelNamespaceFolders,
+    } = parseFolderContents(versionFolderContents);
+
+    // Create file contents for root version folder index.ts using top-level namespace file and folder names
+    const versionFolderFileContent = createIndexFileContent([
+        ...topLevelNamespaceFiles,
+        ...topLevelNamespaceFolders,
+    ]);
+
+    // Create root version folder index.ts file (e.g. src/2014_1/index.ts)
+    const versionFolderFile = `${versionFolderPath}/index.ts`;
+
+    // Ensure file path exists before we try writing the file
+    await fsExtra.ensureDir(versionFolderPath);
+    await fsExtra.writeFile(versionFolderFile, versionFolderFileContent);
+
+    console.log(`Created file ${versionFolderFile}`);
+
+    // Loop over top-level namespace folder names to grab all sub-level namespace file and folder names
+    for (const topLevelNamespaceFolder of topLevelNamespaceFolders) {
+        const topLevelNamespaceFolderPath = path.resolve(versionFolderPath, topLevelNamespaceFolder);
+
+        // Get contents in top-level namespace folder
+        const topLevelNamespaceFolderContents = await fsExtra.readdir(topLevelNamespaceFolderPath);
+        const {
+            files: subLevelNamespaceFiles,
+            folders: subLevelNamespaceFolders,
+        } = parseFolderContents(topLevelNamespaceFolderContents);
+
+        // Create file contents for top-level namespace index.ts using sub-level namespace file and folder names
+        const topLevelNamespaceFolderFileContent = createIndexFileContent([
+            ...subLevelNamespaceFiles,
+            ...subLevelNamespaceFolders,
+        ]);
+
+        // Create top-level namespace index.ts file (e.g. src/2014_1/activities/index.ts)
+        const topLevelNamespaceFolderFile = `${topLevelNamespaceFolderPath}/index.ts`;
+
+        // Ensure file path exists before we try writing the file
+        await fsExtra.ensureDir(topLevelNamespaceFolderPath);
+        await fsExtra.writeFile(topLevelNamespaceFolderFile, topLevelNamespaceFolderFileContent);
+
+        console.log(`Created file ${topLevelNamespaceFolderFile}`);
+
+        // Loop over sub-level namespace folder names to grab all entity/type folder names
+        for (const subLevelNamespaceFolder of subLevelNamespaceFolders) {
+            const subLevelNamespaceFolderPath = path.resolve(topLevelNamespaceFolderPath, subLevelNamespaceFolder);
+
+            // Get contents in sub-level namespace folder
+            const subLevelNamespaceFolderContents = await fsExtra.readdir(subLevelNamespaceFolderPath);
+            const {
+                files: entityOrTypeFiles,
+                folders: entityOrTypeFolders,
+            } = parseFolderContents(subLevelNamespaceFolderContents);
+
+            // Create file contents for sub-level namespace index.ts using entity/type file and folder names
+            const subLevelNamespaceFolderFileContent = createIndexFileContent([
+                ...entityOrTypeFiles,
+                ...entityOrTypeFolders,
+            ]);
+
+            // Create sub-level namespace index.ts file (e.g. src/2014_1/activities/scheduling/index.ts)
+            const subLevelNamespaceFolderFile = `${subLevelNamespaceFolderPath}/index.ts`;
+
+            // Ensure file path exists before we try writing the file
+            await fsExtra.ensureDir(subLevelNamespaceFolderPath);
+            await fsExtra.writeFile(subLevelNamespaceFolderFile, subLevelNamespaceFolderFileContent);
+
+            console.log(`Created file ${subLevelNamespaceFolderFile}`);
+
+            // Loop over entity/type folder names to grab all enclosing file names
+            for (const entityOrTypeFolder of entityOrTypeFolders) {
+                const entityOrTypeFolderPath = path.resolve(subLevelNamespaceFolderPath, entityOrTypeFolder);
+
+                // Get contents in entity or type folder
+                const entityOrTypeFolderContents = await fsExtra.readdir(entityOrTypeFolderPath);
+                const {
+                    files: individualFiles,
+                    folders: individualFolders,
+                } = parseFolderContents(entityOrTypeFolderContents);
+
+                // Create file contents for entity/type index.ts using enclosing file (and possibly folder) names
+                const entityOrTypeFolderFileContent = createIndexFileContent([
+                    ...individualFiles,
+                    ...individualFolders,
+                ]);
+
+                //Create entity/type index.ts file (e.g. src/2014_1/activities/scheduling/Other/index.ts)
+                const entityOrTypeFolderFile = `${entityOrTypeFolderPath}/index.ts`;
+
+                // Ensure file path exists before we try writing the file
+                await fsExtra.ensureDir(entityOrTypeFolderPath);
+                await fsExtra.writeFile(entityOrTypeFolderFile, entityOrTypeFolderFileContent);
+
+                console.log(`Created file ${entityOrTypeFolderFile}`);
+            }
+        }
+    }
+}
+
 function createInterface(filePaths, leftDrawerLink, fileName, rows) {
     let attributesInterface = '';
     let attributesProp = '';
@@ -651,6 +766,27 @@ function getRootNetSuiteTypesFolder(version) {
     return `netsuite-schema-browser-types/src/${version}/`;
 }
 
+function parseFolderContents(contents) {
+    const folderContents = {
+        files: [],
+        folders: [],
+    };
+
+    for (const content of contents) {
+        if (content.indexOf('.') === -1) {
+            // content is a folder
+            folderContents.folders.push(content);
+        }
+
+        if (content.includes('.ts') && content !== 'index.ts') {
+            // content is a file (other than index.ts)
+            folderContents.files.push(content.replace('.ts', ''));
+        }
+    }
+
+    return folderContents;
+}
+
 function sortImports(importA, importB) {
     const indexA = importA.indexOf('src/');
     const indexB = importB.indexOf('src/');
@@ -660,27 +796,27 @@ function sortImports(importA, importB) {
 }
 
 async function main() {
-    if (args.createFilesForAllVersions) {
-        const versions = [
-            '2014_1',
-            '2014_2',
-            '2015_1',
-            '2015_2',
-            '2016_1',
-            '2016_2',
-            '2017_1',
-            '2017_2',
-            '2018_1',
-            '2018_2',
-            '2019_1',
-            '2019_2',
-            '2020_1',
-            '2020_2',
-            '2021_1',
-            '2021_2',
-            '2022_1',
-        ];
+    const versions = [
+        '2014_1',
+        '2014_2',
+        '2015_1',
+        '2015_2',
+        '2016_1',
+        '2016_2',
+        '2017_1',
+        '2017_2',
+        '2018_1',
+        '2018_2',
+        '2019_1',
+        '2019_2',
+        '2020_1',
+        '2020_2',
+        '2021_1',
+        '2021_2',
+        '2022_1',
+    ];
 
+    if (args.createFilesForAllVersions) {
         for (const version of versions) {
             console.log(`Creating 'filePath.js' for version ${version}...`);
             await createFilePathObjectFile(version);
@@ -726,6 +862,22 @@ async function main() {
         console.log(`Creating 'filePath' file for version ${version}...`);
         await createFilePathObjectFile(version);
         console.log(`Finished creating 'filePath' file for version ${version}.`);
+    }
+
+    if (args.createIndexFilesForAllVersions) {
+        for (const version of versions) {
+            console.log(`Creating index files for version ${version}...`);
+            await createFilePathObjectFile(version);
+            console.log(`Finished creating index files for version ${version}.`);
+        }
+    }
+
+    if (args.createIndexFilesForSingleVersion && args.netsuiteVersion) {
+        const { netsuiteVersion: version } = args;
+
+        console.log(`Creating index files for version ${version}...`);
+        await createIndexFilesForVersion(version);
+        console.log(`Finished creating index files for version ${version}.`);
     }
 }
 
