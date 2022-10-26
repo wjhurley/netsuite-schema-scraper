@@ -11,6 +11,8 @@ const args = yargs
     .boolean('createIndexFilesForAllVersions')
     .boolean('createIndexFilesForSingleVersion')
     .boolean('createSingleFile')
+    .boolean('fixImportsForAllVersions')
+    .boolean('fixImportsForVersion')
     .string('link')
     .string('namespaceLink')
     .string('netsuiteVersion')
@@ -168,6 +170,7 @@ function createFileRow(filePaths, columnNames, row) {
     // ['acctName', 'string', '0..1', 'Name', 'T', 'Sets the account name that displays on all reports.']
     const columnValues = row.split('\t');
     const rowObject = {};
+
     // {
     //     name: 'acctName',
     //     type: 'string',
@@ -210,6 +213,7 @@ function createFileRow(filePaths, columnNames, row) {
     const propArray = maximum && maximum === 'unbounded'
         ? '[]'
         : '';
+
     // `propRequired` logic based on NetSuite documentation here:
     // https://docs.oracle.com/en/cloud/saas/netsuite/ns-online-help/section_3975713667.html
     const propRequired = required === 'T' || minimum === '1'
@@ -697,6 +701,131 @@ async function createSingleFile(link) {
     await browser.close();
 }
 
+function doesFileContentIncludeFullImports(fileContent) {
+    const regex = getImportRegex();
+
+    return fileContent.search(regex) > -1;
+}
+
+async function fixImportsForVersion(version) {
+    const versionFolderPath = path.resolve(__dirname, `../../netsuite-schema-browser-types/src/${version}`);
+
+    // Get contents in root version folder
+    const versionFolderContents = await fsExtra.readdir(versionFolderPath);
+    const {
+        files: topLevelNamespaceFiles,
+        folders: topLevelNamespaceFolders,
+    } = parseFolderContents(versionFolderContents);
+
+    for (const file of topLevelNamespaceFiles) {
+        const topLevelNamespaceFile = `${versionFolderPath}/${file}.ts`;
+        const fileContent = await fsExtra.readFile(topLevelNamespaceFile, 'utf8');
+
+        if (doesFileContentIncludeFullImports(fileContent)) {
+            console.log(`Updating imports for ${topLevelNamespaceFile}...`);
+
+            const newFileContent = replaceFullImports(topLevelNamespaceFile, fileContent);
+
+            // Ensure file path exists before we try writing the file
+            await fsExtra.ensureDir(versionFolderPath);
+            await fsExtra.writeFile(topLevelNamespaceFile, newFileContent);
+
+            console.log(`Finished updating imports for ${topLevelNamespaceFile}`);
+        }
+    }
+
+    // Loop over top-level namespace folder names to grab all sub-level namespace file and folder names
+    for (const topLevelNamespaceFolder of topLevelNamespaceFolders) {
+        const topLevelNamespaceFolderPath = path.resolve(versionFolderPath, topLevelNamespaceFolder);
+
+        // Get contents in top-level namespace folder
+        const topLevelNamespaceFolderContents = await fsExtra.readdir(topLevelNamespaceFolderPath);
+        const {
+            files: subLevelNamespaceFiles,
+            folders: subLevelNamespaceFolders,
+        } = parseFolderContents(topLevelNamespaceFolderContents);
+
+        for (const file of subLevelNamespaceFiles) {
+            const subLevelNamespaceFile = `${topLevelNamespaceFolderPath}/${file}.ts`;
+            const fileContent = await fsExtra.readFile(subLevelNamespaceFile, 'utf8');
+
+            if (doesFileContentIncludeFullImports(fileContent)) {
+                console.log(`Updating imports for ${subLevelNamespaceFile}...`);
+
+                const newFileContent = replaceFullImports(subLevelNamespaceFile, fileContent);
+
+                // Ensure file path exists before we try writing the file
+                await fsExtra.ensureDir(topLevelNamespaceFolderPath);
+                await fsExtra.writeFile(subLevelNamespaceFile, newFileContent);
+
+                console.log(`Finished updating imports for ${subLevelNamespaceFile}`);
+            }
+        }
+
+        // Loop over sub-level namespace folder names to grab all entity/type file and folder names
+        for (const subLevelNamespaceFolder of subLevelNamespaceFolders) {
+            const subLevelNamespaceFolderPath = path.resolve(topLevelNamespaceFolderPath, subLevelNamespaceFolder);
+
+            // Get contents in sub-level namespace folder
+            const subLevelNamespaceFolderContents = await fsExtra.readdir(subLevelNamespaceFolderPath);
+            const {
+                files: entityOrTypeFiles,
+                folders: entityOrTypeFolders,
+            } = parseFolderContents(subLevelNamespaceFolderContents);
+
+            for (const file of entityOrTypeFiles) {
+                const entityOrTypeFile = `${subLevelNamespaceFolderPath}/${file}.ts`;
+                const fileContent = await fsExtra.readFile(entityOrTypeFile, 'utf8');
+
+                if (doesFileContentIncludeFullImports(fileContent)) {
+                    console.log(`Updating imports for ${entityOrTypeFile}...`);
+
+                    const newFileContent = replaceFullImports(entityOrTypeFile, fileContent);
+
+                    // Ensure file path exists before we try writing the file
+                    await fsExtra.ensureDir(subLevelNamespaceFolderPath);
+                    await fsExtra.writeFile(entityOrTypeFile, newFileContent);
+
+                    console.log(`Finished updating imports for ${entityOrTypeFile}`);
+                }
+            }
+
+            // Loop over entity/type folder names to grab all enclosing file names
+            for (const entityOrTypeFolder of entityOrTypeFolders) {
+                const entityOrTypeFolderPath = path.resolve(subLevelNamespaceFolderPath, entityOrTypeFolder);
+
+                // Get contents in entity or type folder
+                const entityOrTypeFolderContents = await fsExtra.readdir(entityOrTypeFolderPath);
+                const {
+                    files: individualFiles,
+                    folders: individualFolders,
+                } = parseFolderContents(entityOrTypeFolderContents);
+
+                for (const file of individualFiles) {
+                    const individualFile = `${entityOrTypeFolderPath}/${file}.ts`;
+                    const fileContent = await fsExtra.readFile(individualFile, 'utf8');
+
+                    if (doesFileContentIncludeFullImports(fileContent)) {
+                        console.log(`Updating imports for ${individualFile}...`);
+
+                        const newFileContent = replaceFullImports(individualFile, fileContent);
+
+                        // Ensure file path exists before we try writing the file
+                        await fsExtra.ensureDir(entityOrTypeFolderPath);
+                        await fsExtra.writeFile(individualFile, newFileContent);
+
+                        console.log(`Finished updating imports for ${individualFile}`);
+                    }
+                }
+            }
+        }
+    }
+}
+
+function getImportRegex() {
+    return /(import\s+type\s+\{\s*\w+\s*\}\s+from\s+\')(src[A-Za-z0-9_\/-]+)(\'\;)/;
+}
+
 async function getLeftHandDrawerLinks(rootNetSuiteSchemaUrl, page, tab) {
     return page.$$eval(
         `[name="${tab}switch"]`,
@@ -785,6 +914,71 @@ function parseFolderContents(contents) {
     }
 
     return folderContents;
+}
+
+function replaceFullImports(filePath, fileContent) {
+    const filePathIndex = filePath.indexOf('src/');
+    const filePathParts = filePath
+        .slice(filePathIndex)
+        .split('/');
+    const regex = getImportRegex();
+
+    return fileContent
+        .split('\n')
+        .map(fileContentLine => {
+            const regexResults = fileContentLine.match(regex);
+
+            if (regexResults === null) {
+                return fileContentLine;
+            }
+
+            const [
+                fullImport,
+                importStart,
+                importPath,
+                importEnd,
+            ] = regexResults;
+            const importPathParts = importPath.split('/');
+            const newImportPathParts = [];
+            const relativePathPortion = '..';
+            let count = 0;
+            let isDifferentPath = false;
+
+            for (let i = 0; i < importPathParts.length; i += 1) {
+                const filePathPart = filePathParts[i];
+                const importPathPart = importPathParts[i];
+
+                if (filePathPart === importPathPart && !isDifferentPath) {
+                    continue;
+                }
+
+                // Since folders in sub-level namespace folders use the same names,
+                // we need to flip this boolean once the folder paths don't match
+                isDifferentPath = true;
+
+                newImportPathParts.push(importPathPart);
+
+                // We don't want to increment on the last iteration (file name)
+                if (i < importPathParts.length - 1) {
+                    count += 1;
+                }
+            }
+
+            const relativePathPortions = count !== 0
+                ? Array(count).fill(relativePathPortion)
+                : ['.'];
+            const newImportPath = [
+                ...relativePathPortions,
+                ...newImportPathParts,
+            ].join('/');
+
+            return [
+                importStart,
+                newImportPath,
+                importEnd,
+            ].join('');
+        })
+        .join('\n');
 }
 
 function sortImports(importA, importB) {
@@ -878,6 +1072,22 @@ async function main() {
         console.log(`Creating index files for version ${version}...`);
         await createIndexFilesForVersion(version);
         console.log(`Finished creating index files for version ${version}.`);
+    }
+
+    if (args.fixImportsForAllVersions) {
+        for (const version of versions) {
+            console.log(`Fixing imports for version ${version}...`);
+            await fixImportsForVersion(version);
+            console.log(`Finished fixing imports for version ${version}.`);
+        }
+    }
+
+    if (args.fixImportsForVersion && args.netsuiteVersion) {
+        const { netsuiteVersion: version } = args;
+
+        console.log(`Fixing imports for version ${version}...`);
+        await fixImportsForVersion(version);
+        console.log(`Finished fixing imports for version ${version}.`);
     }
 }
 
