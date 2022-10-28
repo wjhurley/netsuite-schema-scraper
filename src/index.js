@@ -18,10 +18,22 @@ const args = yargs
     .string('netsuiteVersion')
     .argv;
 
+/**
+ * Capitalizes the first letter in a word.
+ * @param {string} word - The word to be capitalized.
+ * @returns {string}
+ */
 function capitalizeWord(word) {
     return word[0].toUpperCase() + word.slice(1);
 }
 
+/**
+ * Creates a TypeScript enum from a page in the NetSuite Schema Browser.
+ * @param {string} leftDrawerLink - The URL this enum was generated from.
+ * @param {string} fileName - The filename to be used as the name of the enum.
+ * @param {string} rows - The rows of text taken from the webpage.
+ * @returns {string}
+ */
 function createEnum(leftDrawerLink, fileName, rows) {
     let fileContent =
         `// ${leftDrawerLink}
@@ -46,6 +58,18 @@ export enum ${fileName} {`;
     return fileContent;
 }
 
+/**
+ * @typedef {Object} FilePaths
+ * @property {string} [key: {string}]
+ */
+
+/**
+ * Creates a TypeScript enum of all scripts for a specific version of NetSuite.
+ * @param {string} relativeFilePath - The relative filepath where the FilePath enum will be stored.
+ * @param {string} fileName - The filename to be used as the name of the enum.
+ * @param {FilePaths} filePaths - The filePath object created for a specific version of NetSuite.
+ * @returns {Promise<void>}
+ */
 async function createFilePathEnum(relativeFilePath, fileName, filePaths) {
     const outputPath = path.resolve(__dirname, relativeFilePath);
     const outputFile = `${outputPath}/${fileName}.ts`;
@@ -88,6 +112,11 @@ ${newLineOrEmptyString}    ${fileName} = '${filePath}',`;
     await fsExtra.writeFile(outputFile, fileContent);
 }
 
+/**
+ * Creates a JavaScript file that exports a filePath object for a specific version of NetSuite.
+ * @param {string} version - The version of NetSuite.
+ * @returns {Promise<void>}
+ */
 async function createFilePathObjectFile(version) {
     const browser = await puppeteer.launch({
         // devtools: true,
@@ -144,7 +173,8 @@ async function createFilePathObjectFile(version) {
                     fileContent += `
     ${fileName}: '${projectFilePath}/${fileName}',`;
                 } catch(e) {
-                    console.log(`Failed to grab data from page, broken link at:\n${leftDrawerLink}`);
+                    console.error(e);
+                    console.warn(`Failed to grab data from page, broken link at:\n${leftDrawerLink}`);
                 }
             }
         }
@@ -166,6 +196,19 @@ exports.filePaths = filePaths;
     await browser.close();
 }
 
+/**
+ * @typedef {Object} FileRow
+ * @property {string} fileRow - The line of text representing a TypeScript interface property
+ * @property {string | null} importLine - The import for the TypeScript interface property type, if necessary.
+ */
+
+/**
+ * Creates a string representing a TypeScript interface property.
+ * @param {FilePaths} filePaths - The filePath object created for a specific version of NetSuite.
+ * @param {string[]} columnNames - The column names from the table on the webpage.
+ * @param {string} row - The rows of text taken from the webpage.
+ * @returns {FileRow}
+ */
 function createFileRow(filePaths, columnNames, row) {
     // ['acctName', 'string', '0..1', 'Name', 'T', 'Sets the account name that displays on all reports.']
     const columnValues = row.split('\t');
@@ -239,6 +282,11 @@ function createFileRow(filePaths, columnNames, row) {
     };
 }
 
+/**
+ * Creates all interfaces and enums for a specific namespace and version of NetSuite.
+ * @param {string} namespaceLink - The URL to a specific namespace and version in NetSuite Schema Browser.
+ * @returns {Promise<void>}
+ */
 async function createFilesForNamespace(namespaceLink) {
     // Get version and tab name from link
     const [
@@ -324,7 +372,7 @@ async function createFilesForNamespace(namespaceLink) {
                 fileCount += 1;
             } catch(e) {
                 console.error(e);
-                console.log(`Failed to grab data from page, broken link at:\n${leftDrawerLink}`);
+                console.warn(`Failed to grab data from page, broken link at:\n${leftDrawerLink}`);
             }
         }
     }
@@ -335,6 +383,11 @@ async function createFilesForNamespace(namespaceLink) {
     await browser.close();
 }
 
+/**
+ * Creates all interfaces and enums for a specific version of NetSuite.
+ * @param {string} version - The version of NetSuite.
+ * @returns {Promise<void>}
+ */
 async function createFilesForVersion(version) {
     // Create dynamic import here to get the specific version we need
     const { filePaths } = require(`./filePath_${version}`);
@@ -399,14 +452,14 @@ async function createFilesForVersion(version) {
                     } else {
                         fileContent = createEnum(leftDrawerLink, fileName, rows);
                     }
-                    console.log(outputFile);
 
                     // Ensure file path exists before we try writing the file
                     await fsExtra.ensureDir(outputPath);
                     await fsExtra.writeFile(outputFile, fileContent);
                     fileCount += 1;
                 } catch(e) {
-                    console.log(`Failed to grab data from page, broken link at:\n${leftDrawerLink}`);
+                    console.error(e);
+                    console.warn(`Failed to grab data from page, broken link at:\n${leftDrawerLink}`);
                 }
             }
         }
@@ -423,12 +476,22 @@ async function createFilesForVersion(version) {
     await browser.close();
 }
 
+/**
+ * Creates an index file for a folder based on the contents of that folder.
+ * @param {string} folderContents - The folder contents from a directory.
+ * @returns {string}
+ */
 function createIndexFileContent(folderContents) {
     return folderContents
         .map(fileOrFolder => `export * from './${fileOrFolder}';`)
         .join('\n');
 }
 
+/**
+ * Creates all index files for the specified version of NetSuite.
+ * @param {string} version - The rows of text taken from the webpage.
+ * @returns {Promise<void>}
+ */
 async function createIndexFilesForVersion(version) {
     const versionFolderPath = path.resolve(__dirname, `../../netsuite-schema-browser-types/src/${version}`);
 
@@ -536,6 +599,14 @@ async function createIndexFilesForVersion(version) {
     }
 }
 
+/**
+ * Creates a TypeScript interface from a page in the NetSuite Schema Browser.
+ * @param {FilePaths} filePaths - The filePath object created for a specific version of NetSuite.
+ * @param {string} leftDrawerLink - The URL this interface was generated from.
+ * @param {string} fileName - The filename to be used as the name of the interface.
+ * @param {string[]} rows - The rows of text taken from the webpage.
+ * @returns {string}
+ */
 function createInterface(filePaths, leftDrawerLink, fileName, rows) {
     let attributesInterface = '';
     let attributesProp = '';
@@ -633,6 +704,11 @@ export interface ${fileName} {${attributesProp}${interfaceProps}
 ${attributesInterface}`;
 }
 
+/**
+ * Creates a single TypeScript file using the contents of a page in the NetSuite Schema Browser.
+ * @param {string} link - The URL for a specific page in the NetSuite Schema Browser.
+ * @returns {Promise<void>}
+ */
 async function createSingleFile(link) {
     // Get version and tab name from link
     const [
@@ -701,12 +777,22 @@ async function createSingleFile(link) {
     await browser.close();
 }
 
+/**
+ * Checks a script's file contents to determine if they contain a non-relative import.
+ * @param {string} fileContent - The file content for a specific enum or interface.
+ * @returns {boolean}
+ */
 function doesFileContentIncludeFullImports(fileContent) {
     const regex = getImportRegex();
 
     return fileContent.search(regex) > -1;
 }
 
+/**
+ * Fixes all non-relative imports in all scripts for a specific version of NetSuite.
+ * @param {string} version - The version of NetSuite.
+ * @returns {Promise<void>}
+ */
 async function fixImportsForVersion(version) {
     const versionFolderPath = path.resolve(__dirname, `../../netsuite-schema-browser-types/src/${version}`);
 
@@ -822,10 +908,21 @@ async function fixImportsForVersion(version) {
     }
 }
 
+/**
+ * Creates a RegExp object specifically for finding non-relative imports in scripts.
+ * @returns {RegExp}
+ */
 function getImportRegex() {
     return /(import\s+type\s+\{\s*\w+\s*\}\s+from\s+\')(src[A-Za-z0-9_\/-]+)(\'\;)/;
 }
 
+/**
+ * Gets all links for a specific tab in the left-hand navigation of the NetSuite Schema Browser.
+ * @param {string} rootNetSuiteSchemaUrl - The root NetSuite Schema Browser URL for a specific version of NetSuite.
+ * @param {Page} page - The Page class created from Puppeteer.
+ * @param {string} tab - The name of the left-hand navigation tab to use.
+ * @returns {Promise<string[]>}
+ */
 async function getLeftHandDrawerLinks(rootNetSuiteSchemaUrl, page, tab) {
     return page.$$eval(
         `[name="${tab}switch"]`,
@@ -840,6 +937,12 @@ async function getLeftHandDrawerLinks(rootNetSuiteSchemaUrl, page, tab) {
     );
 }
 
+/**
+ * Gets links to all namespaces for a specific version of NetSuite.
+ * @param {Page} page - The Page class created from Puppeteer.
+ * @param {string} rootNetSuiteSchemaUrl - The root NetSuite Schema Browser URL for a specific version of NetSuite.
+ * @returns {Promise<string[]>}
+ */
 async function getNamespaceLinks(page, rootNetSuiteSchemaUrl) {
     return page.$$eval(
         '#packagesselect > optgroup > option',
@@ -854,6 +957,12 @@ async function getNamespaceLinks(page, rootNetSuiteSchemaUrl) {
     );
 }
 
+/**
+ * Get content from a webpage using the Page class from Puppeteer.
+ * @param {Page} page - The Page class created from Puppeteer.
+ * @param {string} rootNetSuiteTypesFolder - The root folder path for a specific version of NetSuite.
+ * @returns {Promise<string[]>}
+ */
 async function getPageContent(page, rootNetSuiteTypesFolder) {
     return page.$eval(
         '#contentPanel',
@@ -887,14 +996,35 @@ async function getPageContent(page, rootNetSuiteTypesFolder) {
     );
 }
 
+/**
+ * Get the main NetSuite Schema Browser URL based on the version provided.
+ * @param {string} version - The version of NetSuite.
+ * @returns {string}
+ */
 function getRootNetSuiteSchemaUrl(version) {
     return `https://system.na0.netsuite.com/help/helpcenter/en_US/srbrowser/Browser${version}/`;
 }
 
+/**
+ * Get the requested folder path based on the version provided.
+ * @param {string} version - The version of NetSuite.
+ * @returns {string}
+ */
 function getRootNetSuiteTypesFolder(version) {
     return `netsuite-schema-browser-types/src/${version}/`;
 }
 
+/**
+ * @typedef {Object} FolderContents
+ * @property {string[]} files - The files found reading a directory.
+ * @property {string[]} folders - The folders found reading a directory.
+ */
+
+/**
+ * Parses the output from reading a directory into the file and folder names.
+ * @param {string} contents - The URL this script was generated from.
+ * @returns {FolderContents}
+ */
 function parseFolderContents(contents) {
     const folderContents = {
         files: [],
@@ -916,6 +1046,12 @@ function parseFolderContents(contents) {
     return folderContents;
 }
 
+/**
+ * Replaces full imports in a script with relative imports.
+ * @param {string} filePath - The filepath of the script being modified.
+ * @param {string} fileContent - The original content of the script.
+ * @returns {string}
+ */
 function replaceFullImports(filePath, fileContent) {
     const filePathIndex = filePath.indexOf('src/');
     const filePathParts = filePath
@@ -981,6 +1117,12 @@ function replaceFullImports(filePath, fileContent) {
         .join('\n');
 }
 
+/**
+ * Sort function to be used as `compareFn` parameter to `Array.prototype.sort()`.
+ * @param {string} importA - The first import to be compared.
+ * @param {string} importB - The second import to be compared.
+ * @returns {number}
+ */
 function sortImports(importA, importB) {
     const indexA = importA.indexOf('src/');
     const indexB = importB.indexOf('src/');
@@ -989,6 +1131,10 @@ function sortImports(importA, importB) {
     return subA.localeCompare(subB);
 }
 
+/**
+ * The main entry into this script.
+ * @returns {Promise<void>}
+ */
 async function main() {
     const versions = [
         '2014_1',
