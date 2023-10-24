@@ -1,28 +1,65 @@
 {
-  "name": "netsuite-schema-scraper",
-  "description": "Tools to gather type data from NetSuite's schema browser",
-  "author": "William Hurley",
-  "license": "GPL-3.0-or-later",
-  "version": "0.1.0",
-  "main": "src/index.js",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/wjhurley/netsuite-schema-scraper.git"
-  },
-  "keywords": [
-    "NetSuite"
-  ],
-  "bugs": {
-    "url": "https://github.com/wjhurley/netsuite-schema-scraper/issues"
-  },
-  "homepage": "https://github.com/wjhurley/netsuite-schema-scraper#readme",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "dependencies": {
-    "fs-extra": "^10.1.0",
-    "puppeteer": "^16.1.0",
-    "yargs": "^17.6.0"
-  },
-  "devDependencies": {}
+    "name": "netsuite-schema-scraper",
+    "description": "Tools to gather type data from NetSuite's schema browser",
+    "author": "William Hurley",
+    "license": "GPL-3.0-or-later",
+    "version": "0.1.0",
+    "main": "src/index.js",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/wjhurley/netsuite-schema-scraper.git"
+    },
+    "keywords": [
+        "NetSuite"
+    ],
+    "bugs": {
+        "url": "https://github.com/wjhurley/netsuite-schema-scraper/issues"
+    },
+    "homepage": "https://github.com/wjhurley/netsuite-schema-scraper#readme",
+    "scripts": {
+        "build": "yarn clean && tsc",
+        "clean": "rimraf dist && rimraf tsconfig.tsbuildinfo",
+        "jest": "jest",
+        "lint": "eslint .",
+        "lint:diff": "eslint --cache .",
+        "lint:staged": "lint-staged",
+        "prepare": "husky install",
+        "prepublishOnly": "yarn build",
+        "start": "node -r ts-node/register/transpile-only -r tsconfig-paths/register ./src/index.ts",
+        "test": "yarn lint && yarn jest",
+        "test:coverage": "yarn jest --ci --coverage"
+    },
+    "dependencies": {
+        "fs-extra": "^11.1.1",
+        "puppeteer": "^20.9.0",
+        "yargs": "^17.7.2"
+    },
+    "devDependencies": {
+        "@babel/core": "^7.22.9",
+        "@babel/preset-env": "^7.22.9",
+        "@babel/preset-typescript": "^7.22.5",
+        "@types/fs-extra": "^11.0.1",
+        "@types/jest": "^29.5.3",
+        "@types/node": "^20.4.4",
+        "@typescript-eslint/eslint-plugin": "^6.2.0",
+        "@typescript-eslint/parser": "^6.2.0",
+        "babel-jest": "^29.6.1",
+        "eslint": "^8.45.0",
+        "eslint-config-airbnb": "^19.0.4",
+        "eslint-config-airbnb-typescript": "^17.1.0",
+        "eslint-import-resolver-typescript": "^3.5.5",
+        "eslint-plugin-es": "^4.1.0",
+        "eslint-plugin-import": "^2.27.5",
+        "eslint-plugin-jest": "^27.2.3",
+        "eslint-plugin-putout": "^18.2.0",
+        "eslint-plugin-sort-class-members": "^1.18.0",
+        "husky": "^8.0.0",
+        "jest": "^29.6.1",
+        "lint-staged": "^13.2.3",
+        "putout": "^30.5.0",
+        "ts-node": "^10.9.1",
+        "tsconfig-paths": "^4.2.0",
+        "typescript": "^5.1.6",
+        "typescript-transform-paths": "^3.4.6"
+    }
 }
