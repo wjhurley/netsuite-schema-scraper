@@ -1,9 +1,51 @@
-const fsExtra = require('fs-extra');
-const path = require('path');
-const puppeteer = require('puppeteer');
-const yargs = require('yargs');
+import * as FsExtra from 'fs-extra';
+import * as Path from 'path';
+import * as Puppeteer from 'puppeteer';
+import * as Yargs from 'yargs';
 
-const args = yargs
+interface Arguments {
+    createFilePathObjectFile: boolean;
+    createFilesForAllVersions: boolean;
+    createFilesForNamespace: boolean;
+    createFilesForSingleVersion: boolean;
+    createIndexFilesForAllVersions: boolean;
+    createIndexFilesForSingleVersion: boolean;
+    createSingleFile: boolean;
+    fixImportsForAllVersions: boolean;
+    fixImportsForVersion: boolean;
+    link: string;
+    namespaceLink: string;
+    netsuiteVersion: string;
+}
+
+interface FileRow {
+    fileRow: string;
+    importLine: string | null;
+}
+
+interface FolderContents {
+    files: string[];
+    folders: string[];
+}
+
+interface GenericObject {
+    [key: string]: string;
+}
+
+const args: {
+    createFilePathObjectFile: boolean;
+    createFilesForAllVersions: boolean;
+    createFilesForNamespace: boolean;
+    createFilesForSingleVersion: boolean;
+    createIndexFilesForAllVersions: boolean;
+    createIndexFilesForSingleVersion: boolean;
+    createSingleFile: boolean;
+    fixImportsForAllVersions: boolean;
+    fixImportsForVersion: boolean;
+    link: string;
+    namespaceLink: string;
+    netsuiteVersion: string;
+} = Yargs
     .boolean('createFilePathObjectFile')
     .boolean('createFilesForAllVersions')
     .boolean('createFilesForNamespace')
@@ -16,27 +58,42 @@ const args = yargs
     .string('link')
     .string('namespaceLink')
     .string('netsuiteVersion')
-    .argv;
+    .argv as Arguments;
+
+/* eslint-disable @typescript-eslint/no-use-before-define */
 
 /**
  * Capitalizes the first letter in a word.
  * @param {string} word - The word to be capitalized.
  * @returns {string}
  */
-function capitalizeWord(word) {
+function capitalizeWord(word: string): string {
     return word[0].toUpperCase() + word.slice(1);
+}
+
+/**
+ * Case-insensitive sort function to be used as `compareFn` parameter to `Array.prototype.sort()`.
+ * @param {string} a - first string to compare
+ * @param {string} b - second string to compare
+ * @returns {number}
+ */
+function caseInsensitiveSort(a: string, b: string): number {
+    return a.localeCompare(b);
 }
 
 /**
  * Creates a TypeScript enum from a page in the NetSuite Schema Browser.
  * @param {string} leftDrawerLink - The URL this enum was generated from.
  * @param {string} fileName - The filename to be used as the name of the enum.
- * @param {string} rows - The rows of text taken from the webpage.
+ * @param {string[]} rows - The rows of text taken from the webpage.
  * @returns {string}
  */
-function createEnum(leftDrawerLink, fileName, rows) {
-    let fileContent =
-        `// ${leftDrawerLink}
+function createEnum(
+    leftDrawerLink: string,
+    fileName: string,
+    rows: string[],
+): string {
+    let fileContent = `// ${leftDrawerLink}
 export enum ${fileName} {`;
 
     // Remove 'Value' row
@@ -70,12 +127,16 @@ export enum ${fileName} {`;
  * @param {FilePaths} filePaths - The filePath object created for a specific version of NetSuite.
  * @returns {Promise<void>}
  */
-async function createFilePathEnum(relativeFilePath, fileName, filePaths) {
-    const outputPath = path.resolve(__dirname, relativeFilePath);
+async function createFilePathEnum(
+    relativeFilePath: string,
+    fileName: string,
+    filePaths: GenericObject,
+): Promise<void> {
+    const outputPath = Path.resolve(__dirname, relativeFilePath);
     const outputFile = `${outputPath}/${fileName}.ts`;
 
     // Check if file already exists before we go any further
-    const doesFileAlreadyExist = await fsExtra.pathExists(outputFile);
+    const doesFileAlreadyExist = await FsExtra.pathExists(outputFile);
 
     if (doesFileAlreadyExist) {
         console.log(`FilePath enum already exists at ${outputFile}, skipping.`);
@@ -83,13 +144,15 @@ async function createFilePathEnum(relativeFilePath, fileName, filePaths) {
     }
 
     const sortedFilePathArray = Object.entries(filePaths)
-        .sort(([keyA, valueA], [keyB, valueB]) => valueA.localeCompare(valueB));
+        .sort(
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            ([ keyA, valueA ], [ keyB, valueB ]) => valueA.localeCompare(valueB),
+        );
     let previousParentFolder = '';
 
-        let fileContent =
-`export enum ${fileName} {`;
+    let fileContent = `export enum ${fileName} {`;
 
-    for (const [fileName, filePath] of sortedFilePathArray) {
+    for (const [ localFileName, filePath ] of sortedFilePathArray) {
         const parentFolderIndex = filePath.lastIndexOf('/');
         const parentFolder = filePath.slice(0, parentFolderIndex + 1);
 
@@ -99,7 +162,7 @@ async function createFilePathEnum(relativeFilePath, fileName, filePaths) {
             : '';
 
         fileContent += `
-${newLineOrEmptyString}    ${fileName} = '${filePath}',`;
+${newLineOrEmptyString}    ${localFileName} = '${filePath}',`;
         previousParentFolder = parentFolder;
     }
 
@@ -108,8 +171,8 @@ ${newLineOrEmptyString}    ${fileName} = '${filePath}',`;
 `;
 
     // Ensure file path exists before we try writing the file
-    await fsExtra.ensureDir(outputPath);
-    await fsExtra.writeFile(outputFile, fileContent);
+    await FsExtra.ensureDir(outputPath);
+    await FsExtra.writeFile(outputFile, fileContent);
 }
 
 /**
@@ -117,10 +180,10 @@ ${newLineOrEmptyString}    ${fileName} = '${filePath}',`;
  * @param {string} version - The version of NetSuite.
  * @returns {Promise<void>}
  */
-async function createFilePathObjectFile(version) {
-    const browser = await puppeteer.launch({
+async function createFilePathObjectFile(version: string): Promise<void> {
+    const browser = await Puppeteer.launch({
         // devtools: true,
-        // headless: false,
+        headless: 'new',
         // slowMo: 250,
     });
     const page = await browser.newPage();
@@ -130,9 +193,7 @@ async function createFilePathObjectFile(version) {
 
     const rootNetSuiteSchemaUrl = getRootNetSuiteSchemaUrl(version);
     const rootNetSuiteTypesFolder = getRootNetSuiteTypesFolder(version);
-
-    let fileContent =
-'const filePaths = {';
+    const fileContentLines: string[] = [];
 
     // Get namespace links from the top of the page
     const namespaceLinks = await getNamespaceLinks(page, rootNetSuiteSchemaUrl);
@@ -170,9 +231,8 @@ async function createFilePathObjectFile(version) {
                     const projectRootPathIndex = 'netsuite-schema-browser-types/'.length;
                     const projectFilePath = relativeFilePath.slice(projectRootPathIndex);
 
-                    fileContent += `
-    ${fileName}: '${projectFilePath}/${fileName}',`;
-                } catch(e) {
+                    fileContentLines.push(`    ${fileName}: '${projectFilePath}/${fileName}',`);
+                } catch (e) {
                     console.error(e);
                     console.warn(`Failed to grab data from page, broken link at:\n${leftDrawerLink}`);
                 }
@@ -180,18 +240,19 @@ async function createFilePathObjectFile(version) {
         }
     }
 
-    fileContent += `
-}
+    const props = fileContentLines
+        .sort(caseInsensitiveSort)
+        .join('\n');
+    const fileContent = `export const filePaths = {
+${props}
+};`;
 
-exports.filePaths = filePaths;
-`;
-
-    const outputPath = path.resolve(__dirname);
-    const outputFile = `${outputPath}/filePath_${version}.js`;
+    const outputPath = Path.resolve(__dirname);
+    const outputFile = `${outputPath}/filePath_${version}.ts`;
 
     // Ensure file path exists before we try writing the file
-    await fsExtra.ensureDir(outputPath);
-    await fsExtra.writeFile(outputFile, fileContent);
+    await FsExtra.ensureDir(outputPath);
+    await FsExtra.writeFile(outputFile, fileContent);
 
     await browser.close();
 }
@@ -209,10 +270,14 @@ exports.filePaths = filePaths;
  * @param {string} row - The rows of text taken from the webpage.
  * @returns {FileRow}
  */
-function createFileRow(filePaths, columnNames, row) {
+function createFileRow(
+    filePaths: GenericObject,
+    columnNames: string[],
+    row: string,
+): FileRow {
     // ['acctName', 'string', '0..1', 'Name', 'T', 'Sets the account name that displays on all reports.']
     const columnValues = row.split('\t');
-    const rowObject = {};
+    const rowObject: GenericObject = {};
 
     // {
     //     name: 'acctName',
@@ -222,15 +287,15 @@ function createFileRow(filePaths, columnNames, row) {
     //     required: 'T',
     //     help: 'Sets the account name that displays on all reports.'
     // }
-    for (let [index, value] of Object.entries(columnValues)) {
-        rowObject[columnNames[index]] = value;
+    for (const [ index, value ] of Object.entries(columnValues)) {
+        rowObject[columnNames[Number(index)]] = value;
     }
 
     // Variable to store potentially-needed import
     let importLine = null;
 
     // Variables to make processing rows easier
-    const netSuiteTypeMapping = {
+    const netSuiteTypeMapping: GenericObject = {
         dateTime: 'Date',
         double: 'number',
         int: 'number',
@@ -241,7 +306,6 @@ function createFileRow(filePaths, columnNames, row) {
     const {
         cardinality = '',
         help,
-        label,
         name: propName,
         required = '',
         type,
@@ -271,8 +335,7 @@ function createFileRow(filePaths, columnNames, row) {
     ${propName}${propRequired}: ${propType}${propArray};${propComment}`;
 
     if (Object.hasOwnProperty.call(filePaths, propType)) {
-        importLine =
-`import type { ${propType} } from '${filePaths[propType]}';
+        importLine = `import type { ${propType} } from '${filePaths[propType]}';
 `;
     }
 
@@ -287,7 +350,8 @@ function createFileRow(filePaths, columnNames, row) {
  * @param {string} namespaceLink - The URL to a specific namespace and version in NetSuite Schema Browser.
  * @returns {Promise<void>}
  */
-async function createFilesForNamespace(namespaceLink) {
+async function createFilesForNamespace(namespaceLink: string): Promise<void> {
+    /* eslint-disable @typescript-eslint/no-unused-vars */
     // Get version and tab name from link
     const [
         http,
@@ -301,21 +365,22 @@ async function createFilesForNamespace(namespaceLink) {
         tab,
         record,
     ] = namespaceLink.split(/\/+/g);
+    /* eslint-enable @typescript-eslint/no-unused-vars */
     const version = browserVersion.slice(7);
 
     // Create dynamic import here to get the specific version we need
-    const { filePaths } = require(`./filePath_${version}`);
+    const { filePaths } = require(`./filePath_${version}`); // eslint-disable-line global-require
 
-    const browser = await puppeteer.launch({
+    const browser = await Puppeteer.launch({
         // devtools: true,
-        // headless: false,
+        headless: 'new',
         // slowMo: 250,
     });
     const page = await browser.newPage();
     await page.goto(namespaceLink);
 
     let fileCount = 0;
-    const newFilePaths = {};
+    const newFilePaths: GenericObject = {};
     const rootNetSuiteSchemaUrl = getRootNetSuiteSchemaUrl(version);
     const rootNetSuiteTypesFolder = getRootNetSuiteTypesFolder(version);
 
@@ -327,6 +392,7 @@ async function createFilesForNamespace(namespaceLink) {
         'search',
     ];
 
+    // eslint-disable-next-line @typescript-eslint/no-shadow
     for (const tab of leftHandTabs) {
         // Get urls for all links on the left-hand side
         const leftDrawerLinks = await getLeftHandDrawerLinks(rootNetSuiteSchemaUrl, page, tab);
@@ -339,7 +405,7 @@ async function createFilesForNamespace(namespaceLink) {
                 const [
                     fileName,
                     filePath,
-                    rows,
+                    ...rows
                 ] = await getPageContent(page, rootNetSuiteTypesFolder);
 
                 // All tabs except 'enum' need an additional folder level
@@ -352,7 +418,7 @@ async function createFilesForNamespace(namespaceLink) {
                 const projectFilePath = relativeFilePath.slice(projectRootPathIndex);
                 newFilePaths[fileName] = `${projectFilePath}/${fileName}`;
 
-                const outputPath = path.resolve(__dirname, `../../${relativeFilePath}`);
+                const outputPath = Path.resolve(__dirname, `../../${relativeFilePath}`);
                 const outputFile = `${outputPath}/${fileName}.ts`;
 
                 // Create enum or interface from page content
@@ -367,10 +433,10 @@ async function createFilesForNamespace(namespaceLink) {
                 console.log(outputFile);
 
                 // Ensure file path exists before we try writing the file
-                await fsExtra.ensureDir(outputPath);
-                await fsExtra.writeFile(outputFile, fileContent);
+                await FsExtra.ensureDir(outputPath);
+                await FsExtra.writeFile(outputFile, fileContent);
                 fileCount += 1;
-            } catch(e) {
+            } catch (e) {
                 console.error(e);
                 console.warn(`Failed to grab data from page, broken link at:\n${leftDrawerLink}`);
             }
@@ -388,13 +454,13 @@ async function createFilesForNamespace(namespaceLink) {
  * @param {string} version - The version of NetSuite.
  * @returns {Promise<void>}
  */
-async function createFilesForVersion(version) {
+async function createFilesForVersion(version: string): Promise<void> {
     // Create dynamic import here to get the specific version we need
-    const { filePaths } = require(`./filePath_${version}`);
+    const { filePaths } = require(`./filePath_${version}`); // eslint-disable-line global-require
 
-    const browser = await puppeteer.launch({
+    const browser = await Puppeteer.launch({
         // devtools: true,
-        // headless: false,
+        headless: 'new',
         // slowMo: 250,
     });
     const page = await browser.newPage();
@@ -432,7 +498,7 @@ async function createFilesForVersion(version) {
                     const [
                         fileName,
                         filePath,
-                        rows,
+                        ...rows
                     ] = await getPageContent(page, rootNetSuiteTypesFolder);
 
                     // All tabs except 'enum' need an additional folder level
@@ -440,7 +506,7 @@ async function createFilesForVersion(version) {
                         ? `${filePath}/${capitalizeWord(tab)}`
                         : filePath;
 
-                    const outputPath = path.resolve(__dirname, `../../${relativeFilePath}`);
+                    const outputPath = Path.resolve(__dirname, `../../${relativeFilePath}`);
                     const outputFile = `${outputPath}/${fileName}.ts`;
 
                     // Create enum or interface from page content
@@ -454,10 +520,10 @@ async function createFilesForVersion(version) {
                     }
 
                     // Ensure file path exists before we try writing the file
-                    await fsExtra.ensureDir(outputPath);
-                    await fsExtra.writeFile(outputFile, fileContent);
+                    await FsExtra.ensureDir(outputPath);
+                    await FsExtra.writeFile(outputFile, fileContent);
                     fileCount += 1;
-                } catch(e) {
+                } catch (e) {
                     console.error(e);
                     console.warn(`Failed to grab data from page, broken link at:\n${leftDrawerLink}`);
                 }
@@ -478,10 +544,10 @@ async function createFilesForVersion(version) {
 
 /**
  * Creates an index file for a folder based on the contents of that folder.
- * @param {string} folderContents - The folder contents from a directory.
+ * @param {string[]} folderContents - The folder contents from a directory.
  * @returns {string}
  */
-function createIndexFileContent(folderContents) {
+function createIndexFileContent(folderContents: string[]): string {
     return folderContents
         .map(fileOrFolder => `export * from './${fileOrFolder}';`)
         .join('\n');
@@ -492,11 +558,11 @@ function createIndexFileContent(folderContents) {
  * @param {string} version - The rows of text taken from the webpage.
  * @returns {Promise<void>}
  */
-async function createIndexFilesForVersion(version) {
-    const versionFolderPath = path.resolve(__dirname, `../../netsuite-schema-browser-types/src/${version}`);
+async function createIndexFilesForVersion(version: string): Promise<void> {
+    const versionFolderPath = Path.resolve(__dirname, `../../netsuite-schema-browser-types/src/${version}`);
 
     // Get contents in root version folder
-    const versionFolderContents = await fsExtra.readdir(versionFolderPath);
+    const versionFolderContents = await FsExtra.readdir(versionFolderPath);
     const {
         files: topLevelNamespaceFiles,
         folders: topLevelNamespaceFolders,
@@ -512,17 +578,17 @@ async function createIndexFilesForVersion(version) {
     const versionFolderFile = `${versionFolderPath}/index.ts`;
 
     // Ensure file path exists before we try writing the file
-    await fsExtra.ensureDir(versionFolderPath);
-    await fsExtra.writeFile(versionFolderFile, versionFolderFileContent);
+    await FsExtra.ensureDir(versionFolderPath);
+    await FsExtra.writeFile(versionFolderFile, versionFolderFileContent);
 
     console.log(`Created file ${versionFolderFile}`);
 
     // Loop over top-level namespace folder names to grab all sub-level namespace file and folder names
     for (const topLevelNamespaceFolder of topLevelNamespaceFolders) {
-        const topLevelNamespaceFolderPath = path.resolve(versionFolderPath, topLevelNamespaceFolder);
+        const topLevelNamespaceFolderPath = Path.resolve(versionFolderPath, topLevelNamespaceFolder);
 
         // Get contents in top-level namespace folder
-        const topLevelNamespaceFolderContents = await fsExtra.readdir(topLevelNamespaceFolderPath);
+        const topLevelNamespaceFolderContents = await FsExtra.readdir(topLevelNamespaceFolderPath);
         const {
             files: subLevelNamespaceFiles,
             folders: subLevelNamespaceFolders,
@@ -538,17 +604,17 @@ async function createIndexFilesForVersion(version) {
         const topLevelNamespaceFolderFile = `${topLevelNamespaceFolderPath}/index.ts`;
 
         // Ensure file path exists before we try writing the file
-        await fsExtra.ensureDir(topLevelNamespaceFolderPath);
-        await fsExtra.writeFile(topLevelNamespaceFolderFile, topLevelNamespaceFolderFileContent);
+        await FsExtra.ensureDir(topLevelNamespaceFolderPath);
+        await FsExtra.writeFile(topLevelNamespaceFolderFile, topLevelNamespaceFolderFileContent);
 
         console.log(`Created file ${topLevelNamespaceFolderFile}`);
 
         // Loop over sub-level namespace folder names to grab all entity/type folder names
         for (const subLevelNamespaceFolder of subLevelNamespaceFolders) {
-            const subLevelNamespaceFolderPath = path.resolve(topLevelNamespaceFolderPath, subLevelNamespaceFolder);
+            const subLevelNamespaceFolderPath = Path.resolve(topLevelNamespaceFolderPath, subLevelNamespaceFolder);
 
             // Get contents in sub-level namespace folder
-            const subLevelNamespaceFolderContents = await fsExtra.readdir(subLevelNamespaceFolderPath);
+            const subLevelNamespaceFolderContents = await FsExtra.readdir(subLevelNamespaceFolderPath);
             const {
                 files: entityOrTypeFiles,
                 folders: entityOrTypeFolders,
@@ -564,17 +630,17 @@ async function createIndexFilesForVersion(version) {
             const subLevelNamespaceFolderFile = `${subLevelNamespaceFolderPath}/index.ts`;
 
             // Ensure file path exists before we try writing the file
-            await fsExtra.ensureDir(subLevelNamespaceFolderPath);
-            await fsExtra.writeFile(subLevelNamespaceFolderFile, subLevelNamespaceFolderFileContent);
+            await FsExtra.ensureDir(subLevelNamespaceFolderPath);
+            await FsExtra.writeFile(subLevelNamespaceFolderFile, subLevelNamespaceFolderFileContent);
 
             console.log(`Created file ${subLevelNamespaceFolderFile}`);
 
             // Loop over entity/type folder names to grab all enclosing file names
             for (const entityOrTypeFolder of entityOrTypeFolders) {
-                const entityOrTypeFolderPath = path.resolve(subLevelNamespaceFolderPath, entityOrTypeFolder);
+                const entityOrTypeFolderPath = Path.resolve(subLevelNamespaceFolderPath, entityOrTypeFolder);
 
                 // Get contents in entity or type folder
-                const entityOrTypeFolderContents = await fsExtra.readdir(entityOrTypeFolderPath);
+                const entityOrTypeFolderContents = await FsExtra.readdir(entityOrTypeFolderPath);
                 const {
                     files: individualFiles,
                     folders: individualFolders,
@@ -586,12 +652,12 @@ async function createIndexFilesForVersion(version) {
                     ...individualFolders,
                 ]);
 
-                //Create entity/type index.ts file (e.g. src/2014_1/activities/scheduling/Other/index.ts)
+                // Create entity/type index.ts file (e.g. src/2014_1/activities/scheduling/Other/index.ts)
                 const entityOrTypeFolderFile = `${entityOrTypeFolderPath}/index.ts`;
 
                 // Ensure file path exists before we try writing the file
-                await fsExtra.ensureDir(entityOrTypeFolderPath);
-                await fsExtra.writeFile(entityOrTypeFolderFile, entityOrTypeFolderFileContent);
+                await FsExtra.ensureDir(entityOrTypeFolderPath);
+                await FsExtra.writeFile(entityOrTypeFolderFile, entityOrTypeFolderFileContent);
 
                 console.log(`Created file ${entityOrTypeFolderFile}`);
             }
@@ -607,15 +673,20 @@ async function createIndexFilesForVersion(version) {
  * @param {string[]} rows - The rows of text taken from the webpage.
  * @returns {string}
  */
-function createInterface(filePaths, leftDrawerLink, fileName, rows) {
+function createInterface(
+    filePaths: GenericObject,
+    leftDrawerLink: string,
+    fileName: string,
+    rows: string[],
+): string {
     let attributesInterface = '';
     let attributesProp = '';
     let imports = '';
-    const importsSet = new Set();
+    const importsSet = new Set<string>();
     let interfaceProps = '';
 
     // Get an array of the page sections and their respective indices in the `rows` array
-    const sections = [
+    const pageSections = [
         'Attributes',
         'Fields',
         'Related Record(s)',
@@ -623,17 +694,17 @@ function createInterface(filePaths, leftDrawerLink, fileName, rows) {
     ]
         .reduce((sections, section) => {
             const index = rows.findIndex(row => row === section);
-            sections.push([section, index]);
+            sections.push([ section, index ]);
             return sections;
-        }, [])
-        .filter(([key, value]) => value !== -1)
-        .sort(([keyA, valueA], [keyB, valueB]) => valueA - valueB);
+        }, [] as [string, number][])
+        .filter(([ key, value ]) => value !== -1) // eslint-disable-line @typescript-eslint/no-unused-vars
+        .sort(([ keyA, valueA ], [ keyB, valueB ]) => valueA - valueB); // eslint-disable-line @typescript-eslint/no-unused-vars
 
-    for (const [index, [section, sectionIndex]] of Object.entries(sections)) {
+    for (const [ index, [ section, sectionIndex ] ] of Object.entries(pageSections)) {
         // Figure out where each section begins and ends
         const startIndex = sectionIndex + 1;
-        const endIndex = Number(index) + 1 !== sections.length
-            ? sections[Number(index) + 1][1]
+        const endIndex = Number(index) + 1 !== pageSections.length
+            ? pageSections[Number(index) + 1][1]
             : undefined;
 
         // Slice that section from the `rows` array so that we can process it
@@ -642,7 +713,7 @@ function createInterface(filePaths, leftDrawerLink, fileName, rows) {
         // The first row has the column headers, so pull it out of the array
         const columnNamesString = sectionRows.shift();
         // ['name', 'type', 'cardinality', 'label', 'required', 'help']
-        const columnNames = columnNamesString.split('\t').map(val => val.toLowerCase());
+        const columnNames = columnNamesString?.split('\t').map(val => val.toLowerCase());
 
         // Fields and Attributes sections have to be handled differently
         if (section === 'Attributes') {
@@ -660,7 +731,7 @@ export interface ${attributesInterfaceName} {`;
                 const {
                     fileRow,
                     importLine,
-                } = createFileRow(filePaths, columnNames, row);
+                } = createFileRow(filePaths, columnNames ?? [], row);
                 attributesInterface += fileRow;
 
                 if (importLine !== null) {
@@ -678,7 +749,7 @@ export interface ${attributesInterfaceName} {`;
                 const {
                     fileRow,
                     importLine,
-                } = createFileRow(filePaths, columnNames, row);
+                } = createFileRow(filePaths, columnNames ?? [], row);
                 interfaceProps += fileRow;
 
                 if (importLine !== null) {
@@ -709,8 +780,9 @@ ${attributesInterface}`;
  * @param {string} link - The URL for a specific page in the NetSuite Schema Browser.
  * @returns {Promise<void>}
  */
-async function createSingleFile(link) {
+async function createSingleFile(link: string): Promise<void> {
     // Get version and tab name from link
+    /* eslint-disable @typescript-eslint/no-unused-vars */
     const [
         http,
         url,
@@ -723,14 +795,16 @@ async function createSingleFile(link) {
         tab,
         record,
     ] = link.split(/\/+/g);
+    /* eslint-enable @typescript-eslint/no-unused-vars */
+
     const version = browserVersion.slice(7);
 
     // Create dynamic import here to get the specific version we need
-    const { filePaths } = require(`./filePath_${version}`);
+    const { filePaths } = require(`./filePath_${version}`); // eslint-disable-line global-require
 
-    const browser = await puppeteer.launch({
+    const browser = await Puppeteer.launch({
         // devtools: true,
-        // headless: false,
+        headless: 'new',
         // slowMo: 1000,
     });
     const page = await browser.newPage();
@@ -743,7 +817,7 @@ async function createSingleFile(link) {
         const [
             fileName,
             filePath,
-            rows,
+            ...rows
         ] = await getPageContent(page, rootNetSuiteTypesFolder);
 
         // All tabs except 'enum' need an additional folder level
@@ -751,7 +825,7 @@ async function createSingleFile(link) {
             ? `${filePath}/${capitalizeWord(tab)}`
             : filePath;
 
-        const outputPath = path.resolve(__dirname, `../../${relativeFilePath}`);
+        const outputPath = Path.resolve(__dirname, `../../${relativeFilePath}`);
         const outputFile = `${outputPath}/${fileName}.ts`;
 
         // Create enum or interface from page content
@@ -765,8 +839,8 @@ async function createSingleFile(link) {
         }
 
         // Ensure file path exists before we try writing the file
-        await fsExtra.ensureDir(outputPath);
-        await fsExtra.writeFile(outputFile, fileContent);
+        await FsExtra.ensureDir(outputPath);
+        await FsExtra.writeFile(outputFile, fileContent);
 
         console.log(`New file created:\n${outputFile}`);
     } catch (e) {
@@ -782,7 +856,7 @@ async function createSingleFile(link) {
  * @param {string} fileContent - The file content for a specific enum or interface.
  * @returns {boolean}
  */
-function doesFileContentIncludeFullImports(fileContent) {
+function doesFileContentIncludeFullImports(fileContent: string): boolean {
     const regex = getImportRegex();
 
     return fileContent.search(regex) > -1;
@@ -793,11 +867,11 @@ function doesFileContentIncludeFullImports(fileContent) {
  * @param {string} version - The version of NetSuite.
  * @returns {Promise<void>}
  */
-async function fixImportsForVersion(version) {
-    const versionFolderPath = path.resolve(__dirname, `../../netsuite-schema-browser-types/src/${version}`);
+async function fixImportsForVersion(version: string): Promise<void> {
+    const versionFolderPath = Path.resolve(__dirname, `../../netsuite-schema-browser-types/src/${version}`);
 
     // Get contents in root version folder
-    const versionFolderContents = await fsExtra.readdir(versionFolderPath);
+    const versionFolderContents = await FsExtra.readdir(versionFolderPath);
     const {
         files: topLevelNamespaceFiles,
         folders: topLevelNamespaceFolders,
@@ -805,7 +879,7 @@ async function fixImportsForVersion(version) {
 
     for (const file of topLevelNamespaceFiles) {
         const topLevelNamespaceFile = `${versionFolderPath}/${file}.ts`;
-        const fileContent = await fsExtra.readFile(topLevelNamespaceFile, 'utf8');
+        const fileContent = await FsExtra.readFile(topLevelNamespaceFile, 'utf8');
 
         if (doesFileContentIncludeFullImports(fileContent)) {
             console.log(`Updating imports for ${topLevelNamespaceFile}...`);
@@ -813,8 +887,8 @@ async function fixImportsForVersion(version) {
             const newFileContent = replaceFullImports(topLevelNamespaceFile, fileContent);
 
             // Ensure file path exists before we try writing the file
-            await fsExtra.ensureDir(versionFolderPath);
-            await fsExtra.writeFile(topLevelNamespaceFile, newFileContent);
+            await FsExtra.ensureDir(versionFolderPath);
+            await FsExtra.writeFile(topLevelNamespaceFile, newFileContent);
 
             console.log(`Finished updating imports for ${topLevelNamespaceFile}`);
         }
@@ -822,10 +896,10 @@ async function fixImportsForVersion(version) {
 
     // Loop over top-level namespace folder names to grab all sub-level namespace file and folder names
     for (const topLevelNamespaceFolder of topLevelNamespaceFolders) {
-        const topLevelNamespaceFolderPath = path.resolve(versionFolderPath, topLevelNamespaceFolder);
+        const topLevelNamespaceFolderPath = Path.resolve(versionFolderPath, topLevelNamespaceFolder);
 
         // Get contents in top-level namespace folder
-        const topLevelNamespaceFolderContents = await fsExtra.readdir(topLevelNamespaceFolderPath);
+        const topLevelNamespaceFolderContents = await FsExtra.readdir(topLevelNamespaceFolderPath);
         const {
             files: subLevelNamespaceFiles,
             folders: subLevelNamespaceFolders,
@@ -833,7 +907,7 @@ async function fixImportsForVersion(version) {
 
         for (const file of subLevelNamespaceFiles) {
             const subLevelNamespaceFile = `${topLevelNamespaceFolderPath}/${file}.ts`;
-            const fileContent = await fsExtra.readFile(subLevelNamespaceFile, 'utf8');
+            const fileContent = await FsExtra.readFile(subLevelNamespaceFile, 'utf8');
 
             if (doesFileContentIncludeFullImports(fileContent)) {
                 console.log(`Updating imports for ${subLevelNamespaceFile}...`);
@@ -841,8 +915,8 @@ async function fixImportsForVersion(version) {
                 const newFileContent = replaceFullImports(subLevelNamespaceFile, fileContent);
 
                 // Ensure file path exists before we try writing the file
-                await fsExtra.ensureDir(topLevelNamespaceFolderPath);
-                await fsExtra.writeFile(subLevelNamespaceFile, newFileContent);
+                await FsExtra.ensureDir(topLevelNamespaceFolderPath);
+                await FsExtra.writeFile(subLevelNamespaceFile, newFileContent);
 
                 console.log(`Finished updating imports for ${subLevelNamespaceFile}`);
             }
@@ -850,10 +924,10 @@ async function fixImportsForVersion(version) {
 
         // Loop over sub-level namespace folder names to grab all entity/type file and folder names
         for (const subLevelNamespaceFolder of subLevelNamespaceFolders) {
-            const subLevelNamespaceFolderPath = path.resolve(topLevelNamespaceFolderPath, subLevelNamespaceFolder);
+            const subLevelNamespaceFolderPath = Path.resolve(topLevelNamespaceFolderPath, subLevelNamespaceFolder);
 
             // Get contents in sub-level namespace folder
-            const subLevelNamespaceFolderContents = await fsExtra.readdir(subLevelNamespaceFolderPath);
+            const subLevelNamespaceFolderContents = await FsExtra.readdir(subLevelNamespaceFolderPath);
             const {
                 files: entityOrTypeFiles,
                 folders: entityOrTypeFolders,
@@ -861,7 +935,7 @@ async function fixImportsForVersion(version) {
 
             for (const file of entityOrTypeFiles) {
                 const entityOrTypeFile = `${subLevelNamespaceFolderPath}/${file}.ts`;
-                const fileContent = await fsExtra.readFile(entityOrTypeFile, 'utf8');
+                const fileContent = await FsExtra.readFile(entityOrTypeFile, 'utf8');
 
                 if (doesFileContentIncludeFullImports(fileContent)) {
                     console.log(`Updating imports for ${entityOrTypeFile}...`);
@@ -869,8 +943,8 @@ async function fixImportsForVersion(version) {
                     const newFileContent = replaceFullImports(entityOrTypeFile, fileContent);
 
                     // Ensure file path exists before we try writing the file
-                    await fsExtra.ensureDir(subLevelNamespaceFolderPath);
-                    await fsExtra.writeFile(entityOrTypeFile, newFileContent);
+                    await FsExtra.ensureDir(subLevelNamespaceFolderPath);
+                    await FsExtra.writeFile(entityOrTypeFile, newFileContent);
 
                     console.log(`Finished updating imports for ${entityOrTypeFile}`);
                 }
@@ -878,18 +952,18 @@ async function fixImportsForVersion(version) {
 
             // Loop over entity/type folder names to grab all enclosing file names
             for (const entityOrTypeFolder of entityOrTypeFolders) {
-                const entityOrTypeFolderPath = path.resolve(subLevelNamespaceFolderPath, entityOrTypeFolder);
+                const entityOrTypeFolderPath = Path.resolve(subLevelNamespaceFolderPath, entityOrTypeFolder);
 
                 // Get contents in entity or type folder
-                const entityOrTypeFolderContents = await fsExtra.readdir(entityOrTypeFolderPath);
+                const entityOrTypeFolderContents = await FsExtra.readdir(entityOrTypeFolderPath);
                 const {
                     files: individualFiles,
-                    folders: individualFolders,
+                    // folders: individualFolders,
                 } = parseFolderContents(entityOrTypeFolderContents);
 
                 for (const file of individualFiles) {
                     const individualFile = `${entityOrTypeFolderPath}/${file}.ts`;
-                    const fileContent = await fsExtra.readFile(individualFile, 'utf8');
+                    const fileContent = await FsExtra.readFile(individualFile, 'utf8');
 
                     if (doesFileContentIncludeFullImports(fileContent)) {
                         console.log(`Updating imports for ${individualFile}...`);
@@ -897,8 +971,8 @@ async function fixImportsForVersion(version) {
                         const newFileContent = replaceFullImports(individualFile, fileContent);
 
                         // Ensure file path exists before we try writing the file
-                        await fsExtra.ensureDir(entityOrTypeFolderPath);
-                        await fsExtra.writeFile(individualFile, newFileContent);
+                        await FsExtra.ensureDir(entityOrTypeFolderPath);
+                        await FsExtra.writeFile(individualFile, newFileContent);
 
                         console.log(`Finished updating imports for ${individualFile}`);
                     }
@@ -912,26 +986,36 @@ async function fixImportsForVersion(version) {
  * Creates a RegExp object specifically for finding non-relative imports in scripts.
  * @returns {RegExp}
  */
-function getImportRegex() {
-    return /(import\s+type\s+\{\s*\w+\s*\}\s+from\s+\')(src[A-Za-z0-9_\/-]+)(\'\;)/;
+function getImportRegex(): RegExp {
+    return /(import\s+type\s+\{\s*\w+\s*\}\s+from\s+')(src[A-Za-z0-9_/-]+)(';)/;
 }
 
 /**
  * Gets all links for a specific tab in the left-hand navigation of the NetSuite Schema Browser.
  * @param {string} rootNetSuiteSchemaUrl - The root NetSuite Schema Browser URL for a specific version of NetSuite.
- * @param {Page} page - The Page class created from Puppeteer.
+ * @param {Puppeteer.Page} page - The Page class created from Puppeteer.
  * @param {string} tab - The name of the left-hand navigation tab to use.
  * @returns {Promise<string[]>}
  */
-async function getLeftHandDrawerLinks(rootNetSuiteSchemaUrl, page, tab) {
-    return page.$$eval(
+async function getLeftHandDrawerLinks(
+    rootNetSuiteSchemaUrl: string,
+    page: Puppeteer.Page,
+    tab: string,
+): Promise<string[]> {
+    type EvalFunction = (contentPanel: Element[], folder: string) => string[];
+
+    return page.$$eval<
+        string,
+        string[],
+        EvalFunction
+    >(
         `[name="${tab}switch"]`,
-        (buttons, rootNetSuiteSchemaUrl) => buttons.map(button => {
-            const onClickString = button.onclick.toString();
+        (buttons, url) => buttons.map(button => {
+            const onClickString = (button as HTMLButtonElement).onclick?.toString() || '';
             const schemaIndex = onClickString.indexOf('schema');
             const lastSingleQuote = onClickString.lastIndexOf('\'');
             const tailNetSuiteSchemaUrl = onClickString.slice(schemaIndex, lastSingleQuote);
-            return `${rootNetSuiteSchemaUrl}${tailNetSuiteSchemaUrl}`;
+            return `${url}${tailNetSuiteSchemaUrl}`;
         }),
         rootNetSuiteSchemaUrl,
     );
@@ -939,19 +1023,28 @@ async function getLeftHandDrawerLinks(rootNetSuiteSchemaUrl, page, tab) {
 
 /**
  * Gets links to all namespaces for a specific version of NetSuite.
- * @param {Page} page - The Page class created from Puppeteer.
+ * @param {Puppeteer.Page} page - The Page class created from Puppeteer.
  * @param {string} rootNetSuiteSchemaUrl - The root NetSuite Schema Browser URL for a specific version of NetSuite.
  * @returns {Promise<string[]>}
  */
-async function getNamespaceLinks(page, rootNetSuiteSchemaUrl) {
-    return page.$$eval(
+async function getNamespaceLinks(
+    page: Puppeteer.Page,
+    rootNetSuiteSchemaUrl: string,
+): Promise<string[]> {
+    type EvalFunction = (contentPanel: Element[], folder: string) => string[];
+
+    return page.$$eval<
+        string,
+        string[],
+        EvalFunction
+    >(
         '#packagesselect > optgroup > option',
-        (options, rootNetSuiteSchemaUrl) => options.map(option => {
+        (options, url) => options.map(option => {
             const outerHtml = option.outerHTML;
             const schemaIndex = outerHtml.indexOf('schema');
             const lastDoubleQuote = outerHtml.lastIndexOf('"');
             const tailNetSuiteSchemaUrl = outerHtml.slice(schemaIndex, lastDoubleQuote);
-            return `${rootNetSuiteSchemaUrl}${tailNetSuiteSchemaUrl}`;
+            return `${url}${tailNetSuiteSchemaUrl}`;
         }),
         rootNetSuiteSchemaUrl,
     );
@@ -959,37 +1052,46 @@ async function getNamespaceLinks(page, rootNetSuiteSchemaUrl) {
 
 /**
  * Get content from a webpage using the Page class from Puppeteer.
- * @param {Page} page - The Page class created from Puppeteer.
+ * @param {Puppeteer.Page} page - The Page class created from Puppeteer.
  * @param {string} rootNetSuiteTypesFolder - The root folder path for a specific version of NetSuite.
  * @returns {Promise<string[]>}
  */
-async function getPageContent(page, rootNetSuiteTypesFolder) {
-    return page.$eval(
+async function getPageContent(
+    page: Puppeteer.Page,
+    rootNetSuiteTypesFolder: string,
+): Promise<string[]> {
+    type EvalFunction = (contentPanel: Element, folder: string) => string[];
+
+    return page.$eval<
+        string,
+        string[],
+        EvalFunction
+    >(
         '#contentPanel',
-        (contentPanel, rootNetSuiteTypesFolder) => {
+        (contentPanel, folder) => {
             const [
                 fileName,
                 urn,
                 ...rows
-            ] = contentPanel.innerText
+            ] = (contentPanel as HTMLParagraphElement).innerText
                 .split('\n')
-                .filter(val => val.trim() !== '');
+                .filter((val: string) => val.trim() !== '');
 
             // Get filepath from URN
             const urnIndex = urn.indexOf('urn:');
             const endOfUrn = urn.lastIndexOf('com') + 3;
             const urnString = urn.slice(urnIndex + 4, endOfUrn);
-            const partialFilePath = urnString
+            const partialFilePath: string = urnString
                 .split('.')
                 .reverse()
                 .slice(3) // We don't need 'com', 'netsuite', or 'webservices'
                 .join('/');
-            const filePath = `${rootNetSuiteTypesFolder}${partialFilePath}`;
+            const filePath = `${folder}${partialFilePath}`;
 
             return [
                 fileName,
                 filePath,
-                rows,
+                ...rows,
             ];
         },
         rootNetSuiteTypesFolder,
@@ -1001,7 +1103,7 @@ async function getPageContent(page, rootNetSuiteTypesFolder) {
  * @param {string} version - The version of NetSuite.
  * @returns {string}
  */
-function getRootNetSuiteSchemaUrl(version) {
+function getRootNetSuiteSchemaUrl(version: string): string {
     return `https://system.na0.netsuite.com/help/helpcenter/en_US/srbrowser/Browser${version}/`;
 }
 
@@ -1010,7 +1112,7 @@ function getRootNetSuiteSchemaUrl(version) {
  * @param {string} version - The version of NetSuite.
  * @returns {string}
  */
-function getRootNetSuiteTypesFolder(version) {
+function getRootNetSuiteTypesFolder(version: string): string {
     return `netsuite-schema-browser-types/src/${version}/`;
 }
 
@@ -1022,11 +1124,11 @@ function getRootNetSuiteTypesFolder(version) {
 
 /**
  * Parses the output from reading a directory into the file and folder names.
- * @param {string} contents - The URL this script was generated from.
+ * @param {string[]} contents - The URL this script was generated from.
  * @returns {FolderContents}
  */
-function parseFolderContents(contents) {
-    const folderContents = {
+function parseFolderContents(contents: string[]): FolderContents {
+    const folderContents: FolderContents = {
         files: [],
         folders: [],
     };
@@ -1052,7 +1154,7 @@ function parseFolderContents(contents) {
  * @param {string} fileContent - The original content of the script.
  * @returns {string}
  */
-function replaceFullImports(filePath, fileContent) {
+function replaceFullImports(filePath: string, fileContent: string): string {
     const filePathIndex = filePath.indexOf('src/');
     const filePathParts = filePath
         .slice(filePathIndex)
@@ -1069,7 +1171,7 @@ function replaceFullImports(filePath, fileContent) {
             }
 
             const [
-                fullImport,
+                fullImport, // eslint-disable-line @typescript-eslint/no-unused-vars
                 importStart,
                 importPath,
                 importEnd,
@@ -1102,7 +1204,7 @@ function replaceFullImports(filePath, fileContent) {
 
             const relativePathPortions = count !== 0
                 ? Array(count).fill(relativePathPortion)
-                : ['.'];
+                : [ '.' ];
             const newImportPath = [
                 ...relativePathPortions,
                 ...newImportPathParts,
@@ -1118,12 +1220,12 @@ function replaceFullImports(filePath, fileContent) {
 }
 
 /**
- * Sort function to be used as `compareFn` parameter to `Array.prototype.sort()`.
+ * Import sort function to be used as `compareFn` parameter to `Array.prototype.sort()`.
  * @param {string} importA - The first import to be compared.
  * @param {string} importB - The second import to be compared.
  * @returns {number}
  */
-function sortImports(importA, importB) {
+function sortImports(importA: string, importB: string): number {
     const indexA = importA.indexOf('src/');
     const indexB = importB.indexOf('src/');
     const subA = importA.slice(indexA);
@@ -1131,11 +1233,13 @@ function sortImports(importA, importB) {
     return subA.localeCompare(subB);
 }
 
+/* eslint-disable @typescript-eslint/no-use-before-define */
+
 /**
  * The main entry into this script.
  * @returns {Promise<void>}
  */
-async function main() {
+async function main(): Promise<void> {
     const versions = [
         '2014_1',
         '2014_2',
@@ -1158,9 +1262,9 @@ async function main() {
 
     if (args.createFilesForAllVersions) {
         for (const version of versions) {
-            console.log(`Creating 'filePath.js' for version ${version}...`);
+            console.log(`Creating 'filePath.ts' for version ${version}...`);
             await createFilePathObjectFile(version);
-            console.log(`Finished creating 'filePath.js' for version ${version}.`);
+            console.log(`Finished creating 'filePath.ts' for version ${version}.`);
 
             console.log(`Creating files for version ${version}...`);
             await createFilesForVersion(version);
@@ -1171,9 +1275,9 @@ async function main() {
     if (args.createFilesForSingleVersion && args.netsuiteVersion) {
         const { netsuiteVersion: version } = args;
 
-        console.log(`Creating 'filePath.js' for version ${version}...`);
+        console.log(`Creating 'filePath.ts' for version ${version}...`);
         await createFilePathObjectFile(version);
-        console.log(`Finished creating 'filePath.js' for version ${version}.`);
+        console.log(`Finished creating 'filePath.ts' for version ${version}.`);
 
         console.log(`Creating files for version ${version}...`);
         await createFilesForVersion(version);
