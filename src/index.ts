@@ -3,6 +3,8 @@ import * as Path from 'path';
 import * as Puppeteer from 'puppeteer';
 import * as Yargs from 'yargs';
 
+import { logger } from 'src/logger';
+
 interface Arguments {
     createFilePathObjectFile: boolean;
     createFilesForAllVersions: boolean;
@@ -139,7 +141,7 @@ async function createFilePathEnum(
     const doesFileAlreadyExist = await FsExtra.pathExists(outputFile);
 
     if (doesFileAlreadyExist) {
-        console.log(`FilePath enum already exists at ${outputFile}, skipping.`);
+        logger.warn(`FilePath enum already exists at ${outputFile}, skipping.`);
         return;
     }
 
@@ -181,6 +183,7 @@ ${newLineOrEmptyString}    ${localFileName} = '${filePath}',`;
  * @returns {Promise<void>}
  */
 async function createFilePathObjectFile(version: string): Promise<void> {
+    const rootNetSuiteSchemaUrl = getRootNetSuiteSchemaUrl(version);
     const browser = await Puppeteer.launch({
         // devtools: true,
         headless: 'new',
@@ -188,10 +191,9 @@ async function createFilePathObjectFile(version: string): Promise<void> {
     });
     const page = await browser.newPage();
     await page.goto(
-        `https://system.na0.netsuite.com/help/helpcenter/en_US/srbrowser/Browser${version}/schema/other/recordref.html?mode=package`,
+        `${rootNetSuiteSchemaUrl}schema/other/recordref.html?mode=package`,
     );
 
-    const rootNetSuiteSchemaUrl = getRootNetSuiteSchemaUrl(version);
     const rootNetSuiteTypesFolder = getRootNetSuiteTypesFolder(version);
     const fileContentLines: string[] = [];
 
@@ -233,8 +235,8 @@ async function createFilePathObjectFile(version: string): Promise<void> {
 
                     fileContentLines.push(`    ${fileName}: '${projectFilePath}/${fileName}',`);
                 } catch (e) {
-                    console.error(e);
-                    console.warn(`Failed to grab data from page, broken link at:\n${leftDrawerLink}`);
+                    logger.warn(`Failed to grab data from page, broken link at:\n${leftDrawerLink}`);
+                    logger.error(e);
                 }
             }
         }
@@ -245,7 +247,7 @@ async function createFilePathObjectFile(version: string): Promise<void> {
         .join('\n');
     const fileContent = `export const filePaths = {
 ${props}
-};`;
+};\n`;
 
     const outputPath = Path.resolve(__dirname);
     const outputFile = `${outputPath}/filePath_${version}.ts`;
@@ -430,21 +432,21 @@ async function createFilesForNamespace(namespaceLink: string): Promise<void> {
                 } else {
                     fileContent = createEnum(leftDrawerLink, fileName, rows);
                 }
-                console.log(outputFile);
+                logger.info(outputFile);
 
                 // Ensure file path exists before we try writing the file
                 await FsExtra.ensureDir(outputPath);
                 await FsExtra.writeFile(outputFile, fileContent);
                 fileCount += 1;
             } catch (e) {
-                console.error(e);
-                console.warn(`Failed to grab data from page, broken link at:\n${leftDrawerLink}`);
+                logger.warn(`Failed to grab data from page, broken link at:\n${leftDrawerLink}`);
+                logger.error(e);
             }
         }
     }
 
-    console.log(`Total files created: ${fileCount}`);
-    console.log(`New entries for filePath object:\n${JSON.stringify(newFilePaths, null, 4)}`);
+    logger.info(`Total files created: ${fileCount}`);
+    logger.info(`New entries for filePath object:\n${JSON.stringify(newFilePaths, null, 4)}`);
 
     await browser.close();
 }
@@ -458,6 +460,7 @@ async function createFilesForVersion(version: string): Promise<void> {
     // Create dynamic import here to get the specific version we need
     const { filePaths } = require(`./filePath_${version}`); // eslint-disable-line global-require
 
+    const rootNetSuiteSchemaUrl = getRootNetSuiteSchemaUrl(version);
     const browser = await Puppeteer.launch({
         // devtools: true,
         headless: 'new',
@@ -465,11 +468,10 @@ async function createFilesForVersion(version: string): Promise<void> {
     });
     const page = await browser.newPage();
     await page.goto(
-        `https://system.na0.netsuite.com/help/helpcenter/en_US/srbrowser/Browser${version}/schema/other/recordref.html?mode=package`,
+        `${rootNetSuiteSchemaUrl}schema/other/recordref.html?mode=package`,
     );
 
     let fileCount = 0;
-    const rootNetSuiteSchemaUrl = getRootNetSuiteSchemaUrl(version);
     const rootNetSuiteTypesFolder = getRootNetSuiteTypesFolder(version);
 
     // Get namespace links from the top of the page
@@ -524,20 +526,20 @@ async function createFilesForVersion(version: string): Promise<void> {
                     await FsExtra.writeFile(outputFile, fileContent);
                     fileCount += 1;
                 } catch (e) {
-                    console.error(e);
-                    console.warn(`Failed to grab data from page, broken link at:\n${leftDrawerLink}`);
+                    logger.warn(`Failed to grab data from page, broken link at:\n${leftDrawerLink}`);
+                    logger.error(e);
                 }
             }
         }
     }
 
-    console.log(`Total files created: ${fileCount}`);
+    logger.info(`Total files created: ${fileCount}`);
     await createFilePathEnum(
         `../../netsuite-schema-browser-types/src/${version}/enums`,
         'FilePath',
         filePaths,
     );
-    // console.log(JSON.stringify(filePaths, null, 4));
+    // logger.info(JSON.stringify(filePaths, null, 4));
 
     await browser.close();
 }
@@ -581,7 +583,7 @@ async function createIndexFilesForVersion(version: string): Promise<void> {
     await FsExtra.ensureDir(versionFolderPath);
     await FsExtra.writeFile(versionFolderFile, versionFolderFileContent);
 
-    console.log(`Created file ${versionFolderFile}`);
+    logger.info(`Created file ${versionFolderFile}`);
 
     // Loop over top-level namespace folder names to grab all sub-level namespace file and folder names
     for (const topLevelNamespaceFolder of topLevelNamespaceFolders) {
@@ -607,7 +609,7 @@ async function createIndexFilesForVersion(version: string): Promise<void> {
         await FsExtra.ensureDir(topLevelNamespaceFolderPath);
         await FsExtra.writeFile(topLevelNamespaceFolderFile, topLevelNamespaceFolderFileContent);
 
-        console.log(`Created file ${topLevelNamespaceFolderFile}`);
+        logger.info(`Created file ${topLevelNamespaceFolderFile}`);
 
         // Loop over sub-level namespace folder names to grab all entity/type folder names
         for (const subLevelNamespaceFolder of subLevelNamespaceFolders) {
@@ -633,7 +635,7 @@ async function createIndexFilesForVersion(version: string): Promise<void> {
             await FsExtra.ensureDir(subLevelNamespaceFolderPath);
             await FsExtra.writeFile(subLevelNamespaceFolderFile, subLevelNamespaceFolderFileContent);
 
-            console.log(`Created file ${subLevelNamespaceFolderFile}`);
+            logger.info(`Created file ${subLevelNamespaceFolderFile}`);
 
             // Loop over entity/type folder names to grab all enclosing file names
             for (const entityOrTypeFolder of entityOrTypeFolders) {
@@ -659,7 +661,7 @@ async function createIndexFilesForVersion(version: string): Promise<void> {
                 await FsExtra.ensureDir(entityOrTypeFolderPath);
                 await FsExtra.writeFile(entityOrTypeFolderFile, entityOrTypeFolderFileContent);
 
-                console.log(`Created file ${entityOrTypeFolderFile}`);
+                logger.info(`Created file ${entityOrTypeFolderFile}`);
             }
         }
     }
@@ -842,10 +844,10 @@ async function createSingleFile(link: string): Promise<void> {
         await FsExtra.ensureDir(outputPath);
         await FsExtra.writeFile(outputFile, fileContent);
 
-        console.log(`New file created:\n${outputFile}`);
+        logger.info(`New file created:\n${outputFile}`);
     } catch (e) {
-        console.error(e);
-        console.log(`Failed to grab data from page, broken link at:\n${link}`);
+        logger.warn(`Failed to grab data from page, broken link at:\n${link}`);
+        logger.error(e);
     }
 
     await browser.close();
@@ -882,7 +884,7 @@ async function fixImportsForVersion(version: string): Promise<void> {
         const fileContent = await FsExtra.readFile(topLevelNamespaceFile, 'utf8');
 
         if (doesFileContentIncludeFullImports(fileContent)) {
-            console.log(`Updating imports for ${topLevelNamespaceFile}...`);
+            logger.info(`Updating imports for ${topLevelNamespaceFile}...`);
 
             const newFileContent = replaceFullImports(topLevelNamespaceFile, fileContent);
 
@@ -890,7 +892,7 @@ async function fixImportsForVersion(version: string): Promise<void> {
             await FsExtra.ensureDir(versionFolderPath);
             await FsExtra.writeFile(topLevelNamespaceFile, newFileContent);
 
-            console.log(`Finished updating imports for ${topLevelNamespaceFile}`);
+            logger.info(`Finished updating imports for ${topLevelNamespaceFile}`);
         }
     }
 
@@ -910,7 +912,7 @@ async function fixImportsForVersion(version: string): Promise<void> {
             const fileContent = await FsExtra.readFile(subLevelNamespaceFile, 'utf8');
 
             if (doesFileContentIncludeFullImports(fileContent)) {
-                console.log(`Updating imports for ${subLevelNamespaceFile}...`);
+                logger.info(`Updating imports for ${subLevelNamespaceFile}...`);
 
                 const newFileContent = replaceFullImports(subLevelNamespaceFile, fileContent);
 
@@ -918,7 +920,7 @@ async function fixImportsForVersion(version: string): Promise<void> {
                 await FsExtra.ensureDir(topLevelNamespaceFolderPath);
                 await FsExtra.writeFile(subLevelNamespaceFile, newFileContent);
 
-                console.log(`Finished updating imports for ${subLevelNamespaceFile}`);
+                logger.info(`Finished updating imports for ${subLevelNamespaceFile}`);
             }
         }
 
@@ -938,7 +940,7 @@ async function fixImportsForVersion(version: string): Promise<void> {
                 const fileContent = await FsExtra.readFile(entityOrTypeFile, 'utf8');
 
                 if (doesFileContentIncludeFullImports(fileContent)) {
-                    console.log(`Updating imports for ${entityOrTypeFile}...`);
+                    logger.info(`Updating imports for ${entityOrTypeFile}...`);
 
                     const newFileContent = replaceFullImports(entityOrTypeFile, fileContent);
 
@@ -946,7 +948,7 @@ async function fixImportsForVersion(version: string): Promise<void> {
                     await FsExtra.ensureDir(subLevelNamespaceFolderPath);
                     await FsExtra.writeFile(entityOrTypeFile, newFileContent);
 
-                    console.log(`Finished updating imports for ${entityOrTypeFile}`);
+                    logger.info(`Finished updating imports for ${entityOrTypeFile}`);
                 }
             }
 
@@ -966,7 +968,7 @@ async function fixImportsForVersion(version: string): Promise<void> {
                     const fileContent = await FsExtra.readFile(individualFile, 'utf8');
 
                     if (doesFileContentIncludeFullImports(fileContent)) {
-                        console.log(`Updating imports for ${individualFile}...`);
+                        logger.info(`Updating imports for ${individualFile}...`);
 
                         const newFileContent = replaceFullImports(individualFile, fileContent);
 
@@ -974,7 +976,7 @@ async function fixImportsForVersion(version: string): Promise<void> {
                         await FsExtra.ensureDir(entityOrTypeFolderPath);
                         await FsExtra.writeFile(individualFile, newFileContent);
 
-                        console.log(`Finished updating imports for ${individualFile}`);
+                        logger.info(`Finished updating imports for ${individualFile}`);
                     }
                 }
             }
@@ -1262,87 +1264,87 @@ async function main(): Promise<void> {
 
     if (args.createFilesForAllVersions) {
         for (const version of versions) {
-            console.log(`Creating 'filePath.ts' for version ${version}...`);
+            logger.info(`Creating 'filePath.ts' for version ${version}...`);
             await createFilePathObjectFile(version);
-            console.log(`Finished creating 'filePath.ts' for version ${version}.`);
+            logger.info(`Finished creating 'filePath.ts' for version ${version}.`);
 
-            console.log(`Creating files for version ${version}...`);
+            logger.info(`Creating files for version ${version}...`);
             await createFilesForVersion(version);
-            console.log(`Finished creating files for version ${version}.`);
+            logger.info(`Finished creating files for version ${version}.`);
         }
     }
 
     if (args.createFilesForSingleVersion && args.netsuiteVersion) {
         const { netsuiteVersion: version } = args;
 
-        console.log(`Creating 'filePath.ts' for version ${version}...`);
+        logger.info(`Creating 'filePath.ts' for version ${version}...`);
         await createFilePathObjectFile(version);
-        console.log(`Finished creating 'filePath.ts' for version ${version}.`);
+        logger.info(`Finished creating 'filePath.ts' for version ${version}.`);
 
-        console.log(`Creating files for version ${version}...`);
+        logger.info(`Creating files for version ${version}...`);
         await createFilesForVersion(version);
-        console.log(`Finished creating files for version ${version}.`);
+        logger.info(`Finished creating files for version ${version}.`);
     }
 
     if (args.createFilesForNamespace && args.namespaceLink) {
         const { namespaceLink } = args;
 
-        console.log(`Creating namespace files from link ${namespaceLink}...`);
+        logger.info(`Creating namespace files from link ${namespaceLink}...`);
         await createFilesForNamespace(namespaceLink);
-        console.log(`Finished creating namespace files from link ${namespaceLink}.`);
+        logger.info(`Finished creating namespace files from link ${namespaceLink}.`);
     }
 
     if (args.createSingleFile && args.link) {
         const { link } = args;
 
-        console.log(`Creating file for page ${link}...`);
+        logger.info(`Creating file for page ${link}...`);
         await createSingleFile(link);
-        console.log(`Finished creating file for page ${link}.`);
+        logger.info(`Finished creating file for page ${link}.`);
     }
 
     if (args.createFilePathObjectFile && args.netsuiteVersion) {
         const { netsuiteVersion: version } = args;
 
-        console.log(`Creating 'filePath' file for version ${version}...`);
+        logger.info(`Creating 'filePath' file for version ${version}...`);
         await createFilePathObjectFile(version);
-        console.log(`Finished creating 'filePath' file for version ${version}.`);
+        logger.info(`Finished creating 'filePath' file for version ${version}.`);
     }
 
     if (args.createIndexFilesForAllVersions) {
         for (const version of versions) {
-            console.log(`Creating index files for version ${version}...`);
+            logger.info(`Creating index files for version ${version}...`);
             await createFilePathObjectFile(version);
-            console.log(`Finished creating index files for version ${version}.`);
+            logger.info(`Finished creating index files for version ${version}.`);
         }
     }
 
     if (args.createIndexFilesForSingleVersion && args.netsuiteVersion) {
         const { netsuiteVersion: version } = args;
 
-        console.log(`Creating index files for version ${version}...`);
+        logger.info(`Creating index files for version ${version}...`);
         await createIndexFilesForVersion(version);
-        console.log(`Finished creating index files for version ${version}.`);
+        logger.info(`Finished creating index files for version ${version}.`);
     }
 
     if (args.fixImportsForAllVersions) {
         for (const version of versions) {
-            console.log(`Fixing imports for version ${version}...`);
+            logger.info(`Fixing imports for version ${version}...`);
             await fixImportsForVersion(version);
-            console.log(`Finished fixing imports for version ${version}.`);
+            logger.info(`Finished fixing imports for version ${version}.`);
         }
     }
 
     if (args.fixImportsForVersion && args.netsuiteVersion) {
         const { netsuiteVersion: version } = args;
 
-        console.log(`Fixing imports for version ${version}...`);
+        logger.info(`Fixing imports for version ${version}...`);
         await fixImportsForVersion(version);
-        console.log(`Finished fixing imports for version ${version}.`);
+        logger.info(`Finished fixing imports for version ${version}.`);
     }
 }
 
 main()
     .catch(error => {
-        console.error(error);
+        logger.error(error);
         process.exit(1);
     });
