@@ -141,7 +141,7 @@ async function createFilePathEnum(
     const doesFileAlreadyExist = await FsExtra.pathExists(outputFile);
 
     if (doesFileAlreadyExist) {
-        logger.info(`FilePath enum already exists at ${outputFile}, skipping.`);
+        logger.warn(`FilePath enum already exists at ${outputFile}, skipping.`);
         return;
     }
 
@@ -235,8 +235,8 @@ async function createFilePathObjectFile(version: string): Promise<void> {
 
                     fileContentLines.push(`    ${fileName}: '${projectFilePath}/${fileName}',`);
                 } catch (e) {
-                    logger.error(e);
                     logger.warn(`Failed to grab data from page, broken link at:\n${leftDrawerLink}`);
+                    logger.error(e);
                 }
             }
         }
@@ -439,8 +439,8 @@ async function createFilesForNamespace(namespaceLink: string): Promise<void> {
                 await FsExtra.writeFile(outputFile, fileContent);
                 fileCount += 1;
             } catch (e) {
-                logger.error(e);
                 logger.warn(`Failed to grab data from page, broken link at:\n${leftDrawerLink}`);
+                logger.error(e);
             }
         }
     }
@@ -526,8 +526,8 @@ async function createFilesForVersion(version: string): Promise<void> {
                     await FsExtra.writeFile(outputFile, fileContent);
                     fileCount += 1;
                 } catch (e) {
-                    logger.error(e);
                     logger.warn(`Failed to grab data from page, broken link at:\n${leftDrawerLink}`);
+                    logger.error(e);
                 }
             }
         }
@@ -846,8 +846,8 @@ async function createSingleFile(link: string): Promise<void> {
 
         logger.info(`New file created:\n${outputFile}`);
     } catch (e) {
+        logger.warn(`Failed to grab data from page, broken link at:\n${link}`);
         logger.error(e);
-        logger.info(`Failed to grab data from page, broken link at:\n${link}`);
     }
 
     await browser.close();
